@@ -11,8 +11,7 @@
 
   let envios = [];
   try {
-    const res = await fetch(`${window.APP_CONFIG.API_BASE}/envios`);
-    envios = await res.json();
+    envios = await SemillaCart.fetchEnvios();
   } catch (err) {
     console.warn("No se pudieron cargar los envíos:", err);
   }

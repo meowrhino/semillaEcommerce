@@ -40,6 +40,7 @@ Esto significa que:
 
 - El precio/nombre/descripción de un producto **siempre** es lo que dice el JSON del commit desplegado. El cliente final no puede manipular precios desde el navegador (el backend revalida todo).
 - Añadir un producto son **2 acciones**: editar un JSON y poner la imagen en `/img/`.
+- La home y las fichas de producto leen el catálogo directamente del JSON (no llaman a la API para listarlo) → se pueden **previsualizar con cualquier servidor estático** sin levantar las Functions. Perfecto para maquetar.
 - Puedes hacer `git blame` sobre el catálogo y ver quién cambió qué y cuándo.
 - Si rompes algo con una edición mala, `git revert` y listo.
 
@@ -288,8 +289,10 @@ Edita [`data/envios.json`](data/envios.json), añade `{ "zona": "...", "precio":
 
 ## 6. Día a día trabajando en local
 
+### Modo completo (con Functions, D1, Stripe)
+
 ```bash
-npm run dev                                      # levanta todo
+npm run dev                                      # levanta todo en http://localhost:8788
 stripe listen --forward-to http://localhost:8788/api/stripe-webhook   # si tocas el flujo de pago
 ```
 
@@ -300,6 +303,23 @@ Resetear la DB local:
 npx wrangler d1 execute shop --local --command="DROP TABLE stock; DROP TABLE pedidos;"
 npm run db:init:local
 ```
+
+### Modo "solo maquetación" (sin Functions)
+
+Si solo quieres trabajar CSS / HTML / maquetación y no te interesa Stripe ni admin, abre la tienda con cualquier servidor estático:
+
+```bash
+npx serve .
+# o
+python3 -m http.server 8000
+```
+
+Funciona porque:
+- La home y las fichas leen el catálogo directamente de [`data/productos.json`](data/productos.json).
+- Como `stock` vivo no está disponible, se usa el `stockInicial` declarado en el JSON (suficiente para previsualizar).
+- El botón de pagar fallará porque llama a `/api/crear-sesion` (eso sí requiere Functions).
+
+Útil para iterar diseño sin tener que arrancar `wrangler`.
 
 ---
 
@@ -359,6 +379,7 @@ Todos bajo `/api/*`. Como frontend y backend viven en el mismo dominio, no hay C
 | GET | `/api/productos` | Catálogo activo (leído del JSON) con stock actual (de D1). |
 | GET | `/api/productos/:id` | Detalle de un producto. |
 | GET | `/api/envios` | Zonas y tarifas (leído del JSON). |
+| GET | `/api/stock` | `{ [id]: { [talla]: cantidad } }`. Stock vivo. Se usa para enriquecer el catálogo estático que el front lee de `data/productos.json`. |
 | POST | `/api/crear-sesion` | Recibe `{ carrito, envio }`. Revalida precio/nombre contra JSON y stock contra D1. Crea sesión Stripe. |
 | POST | `/api/stripe-webhook` | Lo llama Stripe. Verifica firma → baja stock → inserta pedido. |
 | GET | `/api/admin/historial?limit=100` | (Bearer) Lista pedidos. |

@@ -121,6 +121,14 @@ app.get("/productos/:id", async (c) => {
 
 app.get("/envios", (c) => c.json(envios));
 
+/** Sólo el stock vivo, para que el front pueda leer catálogo estático y
+ *  enriquecerlo con stock cuando las Functions estén disponibles. */
+app.get("/stock", async (c) => {
+  await ensureStock(c.env);
+  const stock = await fetchStock(c.env);
+  return c.json(stock);
+});
+
 // ─── Stripe checkout ─────────────────────────────────────
 app.post("/crear-sesion", async (c) => {
   const body = await c.req.json().catch(() => ({}));

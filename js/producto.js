@@ -11,48 +11,53 @@
     return;
   }
 
+  let p;
   try {
-    const res = await fetch(`${window.APP_CONFIG.API_BASE}/productos/${encodeURIComponent(id)}`);
-    if (!res.ok) throw new Error("no encontrado");
-    const p = await res.json();
-
-    const tallas = Object.keys(p.stockByTalla || {}).filter(
-      (t) => Number(p.stockByTalla[t]) > 0
-    );
-
-    root.innerHTML = `
-      ${p.img ? `<img src="${p.img}" alt="${escapeHtml(p.nombre)}">` : ""}
-      <h1>${escapeHtml(p.nombre)}</h1>
-      <p class="precio">${SemillaCart.formatPrice(p.precio)}</p>
-      <p>${escapeHtml(p.descripcion || "")}</p>
-      ${
-        tallas.length
-          ? `<label>Talla:
-              <select data-talla>${tallas
-                .map((t) => `<option value="${t}">${t}</option>`)
-                .join("")}</select>
-            </label>`
-          : ""
-      }
-      <button data-add>Añadir al carrito</button>
-    `;
-
-    root.querySelector("[data-add]").addEventListener("click", () => {
-      const talla = root.querySelector("[data-talla]")?.value || "";
-      SemillaCart.addToCart({
-        id: p.id,
-        nombre: p.nombre,
-        precio: p.precio,
-        img: p.img,
-        talla,
-        cantidad: 1,
-      });
-      alert("Añadido al carrito");
-    });
+    p = await SemillaCart.fetchProducto(id);
   } catch (err) {
     console.error(err);
-    root.innerHTML = "<p>No se pudo cargar el producto.</p>";
+    root.innerHTML = "<p>No se pudo cargar el catálogo.</p>";
+    return;
   }
+
+  if (!p) {
+    root.innerHTML = "<p>Producto no encontrado.</p>";
+    return;
+  }
+
+  const tallas = Object.keys(p.stockByTalla || {}).filter(
+    (t) => t !== "_" && Number(p.stockByTalla[t]) > 0
+  );
+
+  root.innerHTML = `
+    ${p.img ? `<img src="${p.img}" alt="${escapeHtml(p.nombre)}">` : ""}
+    <h1>${escapeHtml(p.nombre)}</h1>
+    <p class="precio">${SemillaCart.formatPrice(p.precio)}</p>
+    <p>${escapeHtml(p.descripcion || "")}</p>
+    ${
+      tallas.length
+        ? `<label>Talla:
+            <select data-talla>${tallas
+              .map((t) => `<option value="${t}">${t}</option>`)
+              .join("")}</select>
+          </label>`
+        : ""
+    }
+    <button data-add>Añadir al carrito</button>
+  `;
+
+  root.querySelector("[data-add]").addEventListener("click", () => {
+    const talla = root.querySelector("[data-talla]")?.value || "";
+    SemillaCart.addToCart({
+      id: p.id,
+      nombre: p.nombre,
+      precio: p.precio,
+      img: p.img,
+      talla,
+      cantidad: 1,
+    });
+    alert("Añadido al carrito");
+  });
 })();
 
 function escapeHtml(str) {

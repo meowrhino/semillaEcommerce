@@ -1,6 +1,14 @@
 /**
  * app.js — utilidades comunes + carrito en localStorage.
  *
+ * Estrategia JAMstack:
+ *   - El catálogo (nombres, precios, imágenes) se lee de /data/productos.json,
+ *     que es un archivo estático del repo. Esto permite abrir la web con
+ *     cualquier servidor (o incluso `file://`) y ver la tienda sin Functions.
+ *   - El stock vivo se consulta a /api/stock, que sí requiere Functions.
+ *     Si no está disponible (preview local estática), caemos a stockInicial
+ *     declarado en el propio JSON — suficiente para diseñar/maquetar.
+ *
  * Cada item del carrito: { id, nombre, precio, cantidad, talla?, img? }
  */
 
@@ -73,9 +81,52 @@ function renderCartBadge() {
   });
 }
 
+/** stockInicial puede venir como número o como {talla: cantidad}. Normaliza. */
+function normalizeStockInicial(si) {
+  if (typeof si === "number" && Number.isFinite(si)) return { _: Math.max(0, si) };
+  if (si && typeof si === "object") {
+    const out = {};
+    for (const [k, v] of Object.entries(si)) out[k] = Math.max(0, Number(v) || 0);
+    return out;
+  }
+  return {};
+}
+
+/** Carga el catálogo estático (data/productos.json) e intenta enriquecerlo
+ *  con stock vivo de /api/stock. Si la API no está disponible, cae a stockInicial. */
 async function fetchProductos() {
-  const res = await fetch(`${window.APP_CONFIG.API_BASE}/productos`);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const catRes = await fetch("data/productos.json", { cache: "no-cache" });
+  if (!catRes.ok) throw new Error(`catálogo no disponible (HTTP ${catRes.status})`);
+  const catalogo = (await catRes.json()).filter((p) => p.activo !== false);
+
+  let stockVivo = null;
+  try {
+    const stRes = await fetch(`${window.APP_CONFIG.API_BASE}/stock`);
+    if (stRes.ok) stockVivo = await stRes.json();
+  } catch {
+    // Sin Functions: seguimos con stockInicial del JSON.
+  }
+
+  return catalogo.map((p) => ({
+    id: p.id,
+    nombre: p.nombre,
+    descripcion: p.descripcion ?? "",
+    precio: p.precio,
+    img: p.img ?? "",
+    stockByTalla:
+      (stockVivo && stockVivo[p.id]) || normalizeStockInicial(p.stockInicial),
+  }));
+}
+
+/** Devuelve un producto o null si no existe o está inactivo. */
+async function fetchProducto(id) {
+  const productos = await fetchProductos();
+  return productos.find((p) => String(p.id) === String(id)) || null;
+}
+
+async function fetchEnvios() {
+  const res = await fetch("data/envios.json", { cache: "no-cache" });
+  if (!res.ok) throw new Error(`envios no disponibles (HTTP ${res.status})`);
   return res.json();
 }
 
@@ -97,6 +148,8 @@ window.SemillaCart = {
   clearCart,
   renderCartBadge,
   fetchProductos,
+  fetchProducto,
+  fetchEnvios,
   formatPrice,
 };
 
