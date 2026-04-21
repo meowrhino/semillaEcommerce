@@ -1,0 +1,6 @@
+# Copia este archivo a .dev.vars (ignorado por git) para desarrollo local con wrangler.
+# En producción, configura los secretos con: wrangler pages secret put NOMBRE
+
+STRIPE_SECRET_KEY="sk_test_xxx"
+STRIPE_WEBHOOK_SECRET="whsec_xxx"
+ADMIN_TOKEN="cambiame"

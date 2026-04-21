@@ -1,17 +1,12 @@
 /**
  * config.js — configuración del frontend.
  *
- * GitHub Pages no tiene variables de entorno, así que detectamos el entorno
- * por hostname. Ajusta las URLs cuando despliegues tu backend.
+ * Como el backend (Pages Functions) vive en el mismo origen que el frontend,
+ * usamos rutas relativas y nos ahorramos el tema CORS.
  */
 (function () {
-  const host = window.location.hostname;
-  const isLocal = host === "localhost" || host === "127.0.0.1" || host === "";
-
   window.APP_CONFIG = {
-    API_BASE: isLocal
-      ? "http://localhost:3000"
-      : "https://TU-BACKEND.onrender.com",
+    API_BASE: "/api",
     TIENDA_NOMBRE: "Semilla",
     MONEDA: "EUR",
   };

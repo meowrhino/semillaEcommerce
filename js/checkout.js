@@ -11,10 +11,10 @@
 
   let envios = [];
   try {
-    const res = await fetch("./data/envios.json");
+    const res = await fetch(`${window.APP_CONFIG.API_BASE}/envios`);
     envios = await res.json();
   } catch (err) {
-    console.warn("No se pudo cargar envios.json:", err);
+    console.warn("No se pudieron cargar los envíos:", err);
   }
 
   if (envioSelect) {

@@ -1,6 +1,0 @@
-[
-  { "zona": "local", "precio": 0 },
-  { "zona": "peninsula", "precio": 4.90 },
-  { "zona": "europa", "precio": 12.00 },
-  { "zona": "internacional", "precio": 22.00 }
-]

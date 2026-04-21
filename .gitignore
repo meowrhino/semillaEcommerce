@@ -1,10 +1,6 @@
 .DS_Store
 node_modules/
-server/node_modules/
-server/.env
 .env
+.dev.vars
+.wrangler/
 *.log
-*.db
-*.db-journal
-*.sqlite
-*.sqlite-journal
