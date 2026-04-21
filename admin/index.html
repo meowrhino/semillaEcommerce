@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Admin — Semilla</title>
+    <link rel="stylesheet" href="../css/styles.css" />
+    <script src="../js/config.js"></script>
+  </head>
+  <body>
+    <main class="admin">
+      <h1>Admin</h1>
+
+      <section>
+        <h2>Token</h2>
+        <input id="token" type="password" placeholder="ADMIN_TOKEN" />
+        <button id="save">Guardar</button>
+      </section>
+
+      <nav>
+        <a href="tickets.html">Historial de pedidos</a>
+        <a href="stock.html">Gestión de stock</a>
+      </nav>
+    </main>
+
+    <script>
+      const input = document.getElementById("token");
+      input.value = localStorage.getItem("semilla.admin") || "";
+      document.getElementById("save").addEventListener("click", () => {
+        localStorage.setItem("semilla.admin", input.value.trim());
+        alert("Token guardado");
+      });
+    </script>
+  </body>
+</html>

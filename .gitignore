@@ -1,0 +1,10 @@
+.DS_Store
+node_modules/
+server/node_modules/
+server/.env
+.env
+*.log
+*.db
+*.db-journal
+*.sqlite
+*.sqlite-journal

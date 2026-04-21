@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Stock — Admin</title>
+    <link rel="stylesheet" href="../css/styles.css" />
+    <script src="../js/config.js"></script>
+  </head>
+  <body>
+    <main class="admin">
+      <h1>Gestión de stock</h1>
+      <p><a href="index.html">← volver</a></p>
+      <div id="lista"></div>
+      <button id="guardar">Guardar cambios</button>
+    </main>
+
+    <script>
+      const token = localStorage.getItem("semilla.admin") || "";
+      let productos = [];
+
+      async function load() {
+        if (!token) return alert("Guarda el token en /admin primero");
+        const res = await fetch(`${window.APP_CONFIG.API_BASE}/productos`);
+        productos = await res.json();
+        render();
+      }
+
+      function render() {
+        document.getElementById("lista").innerHTML = productos
+          .map(
+            (p, i) => `
+            <fieldset>
+              <legend>${p.nombre} (${p.id})</legend>
+              ${Object.entries(p.stockByTalla || { _: 0 })
+                .map(
+                  ([t, n]) => `
+                  <label>
+                    ${t === "_" ? "stock" : "talla " + t}:
+                    <input type="number" min="0" value="${n}"
+                      data-prod="${i}" data-talla="${t}">
+                  </label>
+                `
+                )
+                .join("")}
+            </fieldset>
+          `
+          )
+          .join("");
+      }
+
+      document.getElementById("guardar").addEventListener("click", async () => {
+        const payload = productos.map((p) => ({
+          id: p.id,
+          stockByTalla: { ...(p.stockByTalla || {}) },
+        }));
+        document.querySelectorAll("input[data-prod]").forEach((inp) => {
+          const pi = Number(inp.dataset.prod);
+          const t = inp.dataset.talla;
+          payload[pi].stockByTalla[t] = Number(inp.value) || 0;
+        });
+
+        const res = await fetch(`${window.APP_CONFIG.API_BASE}/admin/stock-bulk`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ productos: payload }),
+        });
+        if (res.ok) alert("Guardado");
+        else alert("Error: " + res.status);
+      });
+
+      load();
+    </script>
+  </body>
+</html>

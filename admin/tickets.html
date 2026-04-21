@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Historial — Admin</title>
+    <link rel="stylesheet" href="../css/styles.css" />
+    <script src="../js/config.js"></script>
+  </head>
+  <body>
+    <main class="admin">
+      <h1>Historial de pedidos</h1>
+      <p><a href="index.html">← volver</a></p>
+      <table id="tabla">
+        <thead>
+          <tr><th>Fecha</th><th>Email</th><th>Total</th><th>Items</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </main>
+
+    <script>
+      (async () => {
+        const token = localStorage.getItem("semilla.admin") || "";
+        if (!token) return alert("Guarda el token en /admin primero");
+
+        const res = await fetch(`${window.APP_CONFIG.API_BASE}/admin/historial?limit=100`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) return alert("Error: " + res.status);
+
+        const pedidos = await res.json();
+        const tbody = document.querySelector("#tabla tbody");
+        tbody.innerHTML = pedidos
+          .map(
+            (p) => `
+            <tr>
+              <td>${new Date(p.createdAt).toLocaleString()}</td>
+              <td>${p.email || "—"}</td>
+              <td>${((p.amountTotal || 0) / 100).toFixed(2)} €</td>
+              <td>${(p.items || []).map((i) => `${i.id}${i.talla ? "·" + i.talla : ""} ×${i.cantidad}`).join(", ")}</td>
+            </tr>
+          `
+          )
+          .join("");
+      })();
+    </script>
+  </body>
+</html>
