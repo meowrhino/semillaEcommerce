@@ -1,6 +1,6 @@
 # semillaEcommerce
 
-Plantilla para montar un ecommerce pequeño desde cero. Viene preparada para correr **100 % en Cloudflare gratis**: la web, el backend, la base de datos y el dominio, todo bajo la misma cuenta.
+Plantilla para montar un ecommerce pequeño desde cero, diseñada con filosofía **JAMstack**: el catálogo vive en un archivo de texto que se edita con un editor y se publica con un `git push`. Todo corre en **Cloudflare gratis**: web, backend, base de datos y dominio, bajo la misma cuenta.
 
 Este README está escrito pensando en que **no has tocado Cloudflare Pages ni D1 antes**. Te lleva paso a paso desde clonar el repo hasta tener una tienda viva con pagos reales.
 
@@ -8,63 +8,83 @@ Este README está escrito pensando en que **no has tocado Cloudflare Pages ni D1
 
 ## Tabla de contenidos
 
-1. [Qué tecnologías hay aquí y por qué](#1-qué-tecnologías-hay-aquí-y-por-qué)
-2. [Requisitos previos](#2-requisitos-previos)
-3. [Primera tienda: de cero a viva, paso a paso](#3-primera-tienda-de-cero-a-viva-paso-a-paso)
-4. [Día a día trabajando en local](#4-día-a-día-trabajando-en-local)
-5. [Gestionar la tienda ya desplegada](#5-gestionar-la-tienda-ya-desplegada)
-6. [Mapa del repo](#6-mapa-del-repo)
-7. [Endpoints de la API](#7-endpoints-de-la-api)
-8. [Problemas comunes](#8-problemas-comunes)
-9. [Rescatar la versión Node/Render anterior](#9-rescatar-la-versión-noderender-anterior)
+1. [La filosofía: editar un archivo, hacer push](#1-la-filosofía-editar-un-archivo-hacer-push)
+2. [Qué tecnologías hay aquí y por qué](#2-qué-tecnologías-hay-aquí-y-por-qué)
+3. [Requisitos previos](#3-requisitos-previos)
+4. [Primera tienda: de cero a viva, paso a paso](#4-primera-tienda-de-cero-a-viva-paso-a-paso)
+5. [Añadir, editar o quitar productos (día a día)](#5-añadir-editar-o-quitar-productos-día-a-día)
+6. [Día a día trabajando en local](#6-día-a-día-trabajando-en-local)
+7. [Gestionar la tienda ya desplegada](#7-gestionar-la-tienda-ya-desplegada)
+8. [Mapa del repo](#8-mapa-del-repo)
+9. [Endpoints de la API](#9-endpoints-de-la-api)
+10. [Problemas comunes](#10-problemas-comunes)
+11. [Rescatar la versión Node/Render anterior](#11-rescatar-la-versión-noderender-anterior)
 
 ---
 
-## 1. Qué tecnologías hay aquí y por qué
+## 1. La filosofía: editar un archivo, hacer push
 
-Piensa en Cloudflare como "Render + GitHub Pages + SQLite + DNS, todo junto bajo un mismo login". No tienes que elegir proveedores por separado: ya está integrado.
+Toda la información que se describe con texto (catálogo, zonas de envío, descripciones, precios, imágenes asociadas) vive en **archivos JSON dentro del repo**. No hay panel web para darle de alta a un producto: editas el archivo, haces commit, pusheas. Cloudflare redespliega sola y la tienda sale online con el cambio.
+
+Los archivos editables son:
+
+- [`data/productos.json`](data/productos.json) — el catálogo completo.
+- [`data/envios.json`](data/envios.json) — zonas y tarifas.
+
+La **base de datos** (D1) sólo guarda lo que realmente cambia en caliente y no podrías mantener a mano:
+
+- **stock** — bajan los números con cada venta.
+- **pedidos** — historial de compras confirmadas.
+
+Esto significa que:
+
+- El precio/nombre/descripción de un producto **siempre** es lo que dice el JSON del commit desplegado. El cliente final no puede manipular precios desde el navegador (el backend revalida todo).
+- Añadir un producto son **2 acciones**: editar un JSON y poner la imagen en `/img/`.
+- Puedes hacer `git blame` sobre el catálogo y ver quién cambió qué y cuándo.
+- Si rompes algo con una edición mala, `git revert` y listo.
+
+---
+
+## 2. Qué tecnologías hay aquí y por qué
+
+Piensa en Cloudflare como "Render + GitHub Pages + SQLite + DNS, todo junto bajo un mismo login".
 
 | Pieza | Qué es | Para qué la usamos |
 |---|---|---|
-| **Cloudflare Pages** | Hosting de sitios estáticos (como GitHub Pages). | Sirve el HTML/CSS/JS de la tienda. |
-| **Pages Functions** | Pequeñas funciones de backend que corren junto a Pages, sin configurar servidor. | Aquí vive nuestra API (`/api/productos`, `/api/crear-sesion`, etc). |
-| **Hono** | Un framework para escribir APIs en Workers, muy parecido a Express pero adaptado a Cloudflare. | Organiza las rutas del backend. |
-| **D1** | Base de datos SQLite "serverless" de Cloudflare. Gratis hasta 5 GB. | Guarda productos, stock, pedidos. |
-| **Stripe Checkout** | Página de pago alojada por Stripe (lo mismo que usamos en Anakatana). | Cobrar. |
-| **wrangler** | La CLI oficial de Cloudflare. La usas desde la terminal para crear la DB, levantar el entorno local y desplegar. | Herramienta de desarrollo. |
-
-**Dos diferencias grandes respecto a Anakatana:**
-
-- Ya **no hay** una carpeta `server/` con Express. Todo lo que era `index.js` del backend está ahora en un único archivo: [`functions/api/[[route]].js`](functions/api/%5B%5Broute%5D%5D.js). La sintaxis cambia un poco pero la lógica es la misma.
-- Ya **no hay** `productos.json` ni `registro.json` versionados en git. Todo eso vive ahora en D1 (SQLite). Para arrancar con datos de ejemplo hay un `seed.sql`.
+| **Cloudflare Pages** | Hosting de sitios estáticos (como GitHub Pages). | Sirve el HTML/CSS/JS y los archivos de `/data/`. |
+| **Pages Functions** | Pequeñas funciones de backend que corren junto a Pages, sin configurar servidor. | Aquí vive la API (`/api/productos`, `/api/crear-sesion`, etc). |
+| **Hono** | Framework para escribir APIs en Workers, muy parecido a Express. | Organiza las rutas del backend. |
+| **D1** | Base de datos SQLite "serverless" de Cloudflare. Gratis hasta 5 GB. | Guarda stock y pedidos (NO el catálogo). |
+| **Stripe Checkout** | Página de pago alojada por Stripe. | Cobrar. |
+| **wrangler** | CLI oficial de Cloudflare. | Crear la DB, levantar dev local, desplegar. |
 
 ---
 
-## 2. Requisitos previos
+## 3. Requisitos previos
 
-Tienes que tener instalado / tener cuenta:
+Necesitas:
 
-- **Node.js 18+** — probablemente ya lo tienes. Comprueba con `node -v`.
-- **Git** y el CLI `gh` de GitHub — también los usamos en Anakatana.
-- **Cuenta en Cloudflare** (gratis) — https://dash.cloudflare.com/sign-up
-- **Cuenta en Stripe** (gratis) — https://dashboard.stripe.com/register. Tendrás dos modos: *test* (para probar) y *live* (para cobrar de verdad).
-- **Stripe CLI** (opcional pero recomendado) — para probar los webhooks en local. `brew install stripe/stripe-cli/stripe`.
+- **Node.js 18+** (`node -v` para comprobar).
+- **Git** y **gh** (CLI de GitHub).
+- Cuenta en **Cloudflare** (gratis): https://dash.cloudflare.com/sign-up
+- Cuenta en **Stripe** (gratis): https://dashboard.stripe.com/register
+- **Stripe CLI** (opcional, para probar webhooks en local): `brew install stripe/stripe-cli/stripe`
 
-No hace falta que instales `wrangler` globalmente: viene como dependencia del proyecto y se ejecuta con `npx wrangler ...` o vía los scripts de `npm`.
+No hace falta instalar `wrangler` global: viene como dependencia del proyecto.
 
 ---
 
-## 3. Primera tienda: de cero a viva, paso a paso
+## 4. Primera tienda: de cero a viva, paso a paso
 
-Imaginemos que vas a montar la tienda para un cliente nuevo llamado **"elcliente"**.
+Supongamos que la tienda nueva es para un cliente llamado **elcliente**.
 
-### Paso 3.1 — Crear un repo nuevo a partir de esta semilla
+### 4.1 — Crear un repo a partir de esta semilla
 
-La semilla vive en `meowrhino/semillaEcommerce`. Para cada tienda nueva creas **un repo aparte** usando esta como template. De esta forma el código de ese cliente no contamina la semilla, y si mejoras la semilla más adelante, los cambios no pisan el cliente antiguo.
+Cada tienda es un repo independiente, para no mezclar código entre clientes.
 
-Opción A, desde la web de GitHub: ve a https://github.com/meowrhino/semillaEcommerce, botón verde "Use this template" → "Create a new repository".
+Desde la web de GitHub: https://github.com/meowrhino/semillaEcommerce → botón **Use this template** → **Create a new repository**.
 
-Opción B, desde terminal:
+O desde terminal:
 ```bash
 gh repo create meowrhino/tienda-elcliente --public \
   --template meowrhino/semillaEcommerce \
@@ -72,31 +92,27 @@ gh repo create meowrhino/tienda-elcliente --public \
 cd tienda-elcliente
 ```
 
-A partir de aquí todas las instrucciones son dentro de la carpeta del nuevo repo.
-
-### Paso 3.2 — Instalar dependencias
+### 4.2 — Instalar dependencias
 
 ```bash
 npm install
 ```
 
-Esto baja `hono`, `stripe` y `wrangler`. Se crea `node_modules/` (ya está en `.gitignore`).
-
-### Paso 3.3 — Loguearte en Cloudflare desde la terminal
+### 4.3 — Login en Cloudflare
 
 ```bash
 npx wrangler login
 ```
 
-Se abre el navegador, aceptas, vuelves a la terminal. Solo hace falta hacerlo una vez por máquina. Luego `wrangler` ya habla con tu cuenta.
+Se abre el navegador, aceptas, vuelves a la terminal. Una sola vez por máquina.
 
-### Paso 3.4 — Crear la base de datos D1
+### 4.4 — Crear la base de datos D1
 
 ```bash
 npx wrangler d1 create shop
 ```
 
-Te devuelve un bloque parecido a esto:
+Te devuelve algo así:
 
 ```
 ✅ Successfully created DB 'shop'
@@ -106,322 +122,295 @@ database_name = "shop"
 database_id = "abc123-def456-..."
 ```
 
-**Copia ese `database_id`** y pégalo en [`wrangler.toml`](wrangler.toml), en la línea que pone `database_id = "PEGA_AQUI_EL_ID_DEVUELTO_POR_D1_CREATE"`. Queda así:
+**Copia ese `database_id`** y pégalo en [`wrangler.toml`](wrangler.toml) donde pone `database_id = "PEGA_AQUI_..."`.
 
-```toml
-[[d1_databases]]
-binding = "DB"
-database_name = "shop"
-database_id = "abc123-def456-..."
-```
+### 4.5 — Crear las tablas
 
-### Paso 3.5 — Crear las tablas y meter datos de ejemplo
-
-Hay dos entornos: **local** (una SQLite que vive en tu máquina dentro de `.wrangler/`) y **remoto** (la D1 real en Cloudflare). Queremos preparar los dos.
+La base de datos tiene dos: `stock` y `pedidos`. No hay tabla de productos — el catálogo es el JSON.
 
 ```bash
-# Local (para probar en tu ordenador):
-npm run db:init:local     # crea las tablas
-npm run db:seed:local     # mete productos y envíos de ejemplo
+# Local (una SQLite en tu máquina, para desarrollo):
+npm run db:init:local
 
-# Remoto (el que usará la tienda en producción):
-npm run db:init           # crea las tablas en la D1 real
-npm run db:seed           # (opcional) mete los mismos datos de ejemplo
+# Remoto (la D1 real en Cloudflare, producción):
+npm run db:init
 ```
 
-Si quieres ver que funcionó:
-```bash
-npx wrangler d1 execute shop --local --command="SELECT id, nombre, precio FROM productos"
-```
+No hay paso de "seed": el stock se inicializa solo la primera vez que la tienda recibe una petición, leyendo `stockInicial` de cada producto en `productos.json`.
 
-### Paso 3.6 — Configurar los secretos locales
+### 4.6 — Secretos locales
 
-Los **secretos** (claves de Stripe, token de admin) nunca van al repo. En local los ponemos en `.dev.vars` (ignorado por git). En producción los pondremos en Cloudflare directamente.
+Los secretos no van al repo. En local los ponemos en `.dev.vars` (ignorado por git).
 
 ```bash
 cp .dev.vars.example .dev.vars
 ```
 
-Ahora abre `.dev.vars` y rellena:
-
+Edita `.dev.vars` y rellena:
 ```
-STRIPE_SECRET_KEY="sk_test_XXXX"         # de Stripe dashboard → Developers → API keys (modo test)
-STRIPE_WEBHOOK_SECRET="whsec_XXXX"       # de `stripe listen` (ver paso 3.8)
-ADMIN_TOKEN="loquequieras"               # invéntate uno largo
+STRIPE_SECRET_KEY="sk_test_XXXX"
+STRIPE_WEBHOOK_SECRET="whsec_XXXX"
+ADMIN_TOKEN="inventate-uno-largo"
 ```
 
-Para conseguir `STRIPE_SECRET_KEY`: https://dashboard.stripe.com/test/apikeys → "Secret key" → "Reveal". Empieza por `sk_test_...` mientras estés en modo test.
+Consigue `STRIPE_SECRET_KEY` en https://dashboard.stripe.com/test/apikeys → **Secret key** → **Reveal**. Empieza por `sk_test_`.
 
-### Paso 3.7 — Levantar el entorno local
+### 4.7 — Levantar el entorno local
 
 ```bash
 npm run dev
 ```
 
-Eso arranca `wrangler pages dev`. Verás algo tipo:
+Imprime `Ready on http://localhost:8788`. Abre esa URL: ves la home con los 2 productos demo. El admin está en `/admin/`.
 
-```
-⎔ Starting local server...
-[wrangler:inf] Ready on http://localhost:8788
-```
+### 4.8 — Probar webhooks de Stripe en local (recomendado)
 
-Abre **http://localhost:8788** y deberías ver la home con los 2 productos de ejemplo. El admin está en **http://localhost:8788/admin/**.
-
-Mientras `wrangler dev` esté corriendo, también tienes el backend en `http://localhost:8788/api/*`. Puedes probar:
-
-```bash
-curl http://localhost:8788/api/productos
-```
-
-### Paso 3.8 — Probar pagos de Stripe en local (opcional pero recomendado)
-
-Cuando alguien paga, Stripe envía un *webhook* a tu backend para confirmarlo. En local necesitas un puente. Abre **otra terminal** (deja `npm run dev` corriendo):
-
+En otra terminal:
 ```bash
 stripe login
 stripe listen --forward-to http://localhost:8788/api/stripe-webhook
 ```
 
-`stripe listen` imprime una línea así:
-```
-> Ready! Your webhook signing secret is whsec_XXXXXXX (^C to quit)
-```
+Te imprime un `whsec_...`. Ponlo como `STRIPE_WEBHOOK_SECRET` en `.dev.vars` y reinicia `npm run dev`.
 
-**Copia ese `whsec_...`** y ponlo en `.dev.vars` como `STRIPE_WEBHOOK_SECRET`. Reinicia `npm run dev` para que cargue el nuevo secreto.
+Prueba un pago con tarjeta **4242 4242 4242 4242**, cualquier fecha futura, cualquier CVC. Verás el pedido en `/admin/tickets.html`.
 
-Ahora puedes hacer un pago de prueba en la tienda con la tarjeta de test **4242 4242 4242 4242**, cualquier CVC, cualquier fecha futura. Verás en la consola de `npm run dev` algo como `[webhook] pedido ord_... registrado` y en el admin (`/admin/tickets.html`) el pedido nuevo.
+### 4.9 — Conectar el repo a Cloudflare Pages
 
-### Paso 3.9 — Conectar el repo a Cloudflare Pages (deploy)
-
-Ya funciona en local. Toca publicarlo.
-
-1. Entra en https://dash.cloudflare.com → **Workers & Pages** → **Create application** → pestaña **Pages** → **Connect to Git**.
-2. Autoriza GitHub si es la primera vez, y selecciona el repo `meowrhino/tienda-elcliente`.
-3. En la configuración:
+1. https://dash.cloudflare.com → **Workers & Pages** → **Create application** → pestaña **Pages** → **Connect to Git**.
+2. Autoriza GitHub, selecciona el repo.
+3. Configuración:
    - **Production branch**: `master`
    - **Framework preset**: *None*
-   - **Build command**: *(dejar vacío)*
+   - **Build command**: *(vacío)*
    - **Build output directory**: `/`
-4. Botón **Save and Deploy**. Tarda ~30 s. Te queda en una URL tipo `https://tienda-elcliente.pages.dev`.
+4. **Save and Deploy**. Tarda ~30s. URL tipo `https://tienda-elcliente.pages.dev`.
 
-A partir de ahora, cada `git push origin master` redespliega automáticamente.
+Cada `git push origin master` redespliega automáticamente.
 
-### Paso 3.10 — Enlazar la D1 al sitio desplegado
+### 4.10 — Enlazar la D1 al sitio desplegado
 
-El sitio ya está online, pero todavía no puede hablar con D1 ni tiene las claves de Stripe. Hay que atarlo todo.
-
-En el dashboard de Cloudflare, dentro de tu proyecto de Pages:
-
+En tu proyecto de Pages:
 - **Settings** → **Functions** → **D1 database bindings** → **Add binding**.
   - Variable name: `DB`
   - D1 database: `shop`
-  - Guardar.
 
-### Paso 3.11 — Añadir los secretos de producción
+### 4.11 — Secretos de producción
 
-Dentro del mismo proyecto de Pages:
-
-- **Settings** → **Environment variables** → sección **Production** → **Add variable**.
-
-Añade cada uno **como "Encrypted"** (así quedan cifrados):
+**Settings** → **Environment variables** → sección **Production** → **Add variable** (marca **Encrypted**):
 
 | Variable | Valor |
 |---|---|
-| `STRIPE_SECRET_KEY` | La *live* de Stripe (empieza por `sk_live_...`) cuando vayas a cobrar de verdad, o `sk_test_...` si sigues en test. |
-| `STRIPE_WEBHOOK_SECRET` | El que te dará Stripe al configurar el webhook (paso 3.13). |
-| `ADMIN_TOKEN` | Un string largo inventado. Será lo que metas en `/admin/` en el navegador. |
-| `FRONTEND_URL` | La URL final de la tienda, p.ej. `https://tutienda.com` o `https://tienda-elcliente.pages.dev`. Se usa para los `success_url`/`cancel_url` de Stripe. |
+| `STRIPE_SECRET_KEY` | `sk_test_...` o `sk_live_...` |
+| `STRIPE_WEBHOOK_SECRET` | `whsec_...` de Stripe (paso 4.13) |
+| `ADMIN_TOKEN` | un string largo; lo meterás en `/admin/` para entrar |
+| `FRONTEND_URL` | p.ej. `https://tutienda.com` o `https://tienda-elcliente.pages.dev` |
 
-Tras añadirlos, ve a **Deployments** y vuelve a lanzar el último deploy con "Retry deployment" para que los coja.
+Tras añadirlos, **Deployments → Retry deployment** para que los coja.
 
-### Paso 3.12 — Configurar el dominio del cliente
+### 4.12 — Dominio del cliente
 
-Si el cliente ya tiene el dominio en Cloudflare (lo habitual):
+**Custom domains** → escribe `tutienda.com` → siguiente. Si el DNS ya está en Cloudflare (lo normal), HTTPS automático en 1-2 min.
 
-- **Custom domains** → **Set up a custom domain** → escribe `tutienda.com` → siguiente.
-- Cloudflare crea el CNAME y activa HTTPS automáticamente. En 1-2 minutos está listo.
+### 4.13 — Webhook de Stripe en producción
 
-Si el dominio no está en Cloudflare:
-- Migra los nameservers del dominio a Cloudflare (es gratis, 5 min).
-- Luego repite el paso anterior.
-
-Acuérdate de actualizar `FRONTEND_URL` para que apunte al dominio definitivo.
-
-### Paso 3.13 — Configurar el webhook de Stripe en producción
-
-En el dashboard de Stripe, **con el modo en el que estés trabajando** (test o live):
-
-- **Developers** → **Webhooks** → **Add endpoint**.
-- **Endpoint URL**: `https://tutienda.com/api/stripe-webhook`
-- **Events to send**: selecciona `checkout.session.completed`.
-- Guarda. Stripe te da un "Signing secret" (`whsec_...`).
-- Vuelve a Cloudflare → Pages → Settings → Environment variables → edita `STRIPE_WEBHOOK_SECRET` con ese valor.
+Stripe dashboard → **Developers** → **Webhooks** → **Add endpoint**:
+- URL: `https://tutienda.com/api/stripe-webhook`
+- Evento mínimo: `checkout.session.completed`
+- Copia el **Signing secret** y actualiza `STRIPE_WEBHOOK_SECRET` en Cloudflare.
 - Relanza el deploy.
 
-### Paso 3.14 — Rellenar el catálogo real del cliente
+### 4.14 — Rellenar el catálogo real
 
-Borra los productos de ejemplo y mete los reales. Edita [`data/seed.sql`](data/seed.sql):
+Ver sección siguiente.
 
-```sql
-DELETE FROM productos;
-DELETE FROM stock_variantes;
+### 4.15 — Pintar la marca
 
-INSERT INTO productos (id, nombre, descripcion, precio, img) VALUES
-  ('camiseta-azul', 'Camiseta azul', 'Algodón orgánico', 24.90, '/img/camiseta-azul.jpg'),
-  ...;
-
-INSERT INTO stock_variantes (producto_id, talla, cantidad) VALUES
-  ('camiseta-azul', 'S', 5),
-  ('camiseta-azul', 'M', 8),
-  ...;
-```
-
-Y lo aplicas a la DB remota:
-```bash
-npm run db:seed    # ejecuta seed.sql en la D1 de producción
-```
-
-(También puedes gestionar stock desde `/admin/stock.html` sin tocar SQL.)
-
-### Paso 3.15 — Pintar la marca
-
-- [`css/styles.css`](css/styles.css) está vacío de marca aposta, con variables CSS neutras. Cambia colores, fuentes, etc.
+- [`css/styles.css`](css/styles.css) está neutro a propósito. Pinta colores, fuentes, espacios.
 - [`js/config.js`](js/config.js): ajusta `TIENDA_NOMBRE`.
-- Pon el logo y las imágenes de producto en `/img/` y referéncialas desde `seed.sql`.
-- Ajusta los textos de [`index.html`](index.html), [`about.html`](about.html) (si la creas), etc.
-
-A cada `git push` se redespliega solo.
-
-Cuando estés listo para cobrar de verdad, pasa Stripe a modo **live** y mete la `sk_live_...` en Cloudflare.
+- Textos de [`index.html`](index.html) y hermanos.
 
 ---
 
-## 4. Día a día trabajando en local
+## 5. Añadir, editar o quitar productos (día a día)
 
-Una vez hecho el setup inicial, tu loop diario es:
+### Añadir un producto
 
-```bash
-npm run dev                                           # levanta todo
-stripe listen --forward-to http://localhost:8788/api/stripe-webhook    # si tocas el flujo de pago
+1. Pon la imagen en `/img/` (p.ej. `/img/taza-azul.jpg`).
+2. Abre [`data/productos.json`](data/productos.json) y añade un objeto:
+
+```json
+{
+  "id": "taza-azul",
+  "nombre": "Taza cerámica azul",
+  "descripcion": "Cerámica esmaltada. 350 ml.",
+  "precio": 14.90,
+  "img": "/img/taza-azul.jpg",
+  "stockInicial": 20
+}
 ```
 
-Cambias HTML/CSS/JS → recargas navegador. Cambias `functions/api/[[route]].js` → wrangler reinicia solo.
+3. Si tiene tallas, `stockInicial` es un objeto:
+```json
+"stockInicial": { "S": 5, "M": 8, "L": 3 }
+```
 
-Para resetear la DB local (dev destructivo):
+4. `git add . && git commit -m "add: taza azul" && git push`.
+
+Cloudflare redespliega en ~30s. La primera petición tras el deploy inicializa el stock del producto nuevo en D1 (usando `stockInicial`). A partir de ahí, D1 manda sobre el stock — `stockInicial` ya no se vuelve a leer para ese producto.
+
+### Editar precio / descripción / imagen
+
+Editar el JSON y `git push`. Se aplica al instante tras el deploy.
+
+### Ocultar temporalmente un producto
+
+Añade `"activo": false`:
+```json
+{ "id": "taza-azul", ..., "activo": false }
+```
+
+Desaparece del catálogo y no se puede comprar, pero el stock se conserva para cuando lo reactives.
+
+### Borrar un producto
+
+Quítalo del JSON. El stock y los pedidos históricos permanecen en D1 (puedes limpiarlos manualmente si quieres).
+
+### Editar el stock actual
+
+**NO** toques `stockInicial` del JSON (solo se usa la primera vez). Edita el stock vivo desde `/admin/stock.html` en la tienda desplegada — ver sección 7.
+
+### Añadir una zona de envío
+
+Edita [`data/envios.json`](data/envios.json), añade `{ "zona": "...", "precio": ... }`, push.
+
+---
+
+## 6. Día a día trabajando en local
+
 ```bash
-npm run db:init:local    # borra y recrea tablas
-npm run db:seed:local    # remete los datos de ejemplo
+npm run dev                                      # levanta todo
+stripe listen --forward-to http://localhost:8788/api/stripe-webhook   # si tocas el flujo de pago
+```
+
+Cambias HTML/CSS/JS o `functions/api/[[route]].js` o `data/*.json` → wrangler reinicia solo (el JSON se re-bundlea al arrancar la función).
+
+Resetear la DB local:
+```bash
+npx wrangler d1 execute shop --local --command="DROP TABLE stock; DROP TABLE pedidos;"
+npm run db:init:local
 ```
 
 ---
 
-## 5. Gestionar la tienda ya desplegada
+## 7. Gestionar la tienda ya desplegada
 
 ### Ver pedidos
-- Con navegador: `https://tutienda.com/admin/` → mete el `ADMIN_TOKEN` → **Historial**.
-- Con SQL directo: `npx wrangler d1 execute shop --command="SELECT * FROM pedidos ORDER BY created_at DESC LIMIT 20"`.
+- Navegador: `https://tutienda.com/admin/` → meter `ADMIN_TOKEN` → **Historial**.
+- CLI: `npx wrangler d1 execute shop --command="SELECT * FROM pedidos ORDER BY created_at DESC LIMIT 20"`.
 
 ### Cambiar stock
-- Con navegador: `https://tutienda.com/admin/stock.html`.
-- O editando `seed.sql` y reaplicando con `npm run db:seed` (ojo, el seed actual borra y reinserta).
+- Navegador: `https://tutienda.com/admin/stock.html`.
+- Lee los productos de `productos.json`, los números muestran el stock actual de D1. Editas y guardas.
 
-### Añadir productos nuevos sin tocar código
-Por ahora hay que hacer `INSERT` directo en D1 o usar `/admin/stock.html`. Si queremos una UI de admin para crear productos se añade sobre lo mismo; díselo y lo montamos.
-
-### Ver logs y errores en producción
-- Cloudflare dashboard → Pages → tu proyecto → **Functions** → **Real-time logs**.
-- O desde CLI: `npx wrangler pages deployment tail`.
+### Ver logs en producción
+- Cloudflare dashboard → Pages → proyecto → **Functions** → **Real-time logs**.
+- CLI: `npx wrangler pages deployment tail`.
 
 ---
 
-## 6. Mapa del repo
+## 8. Mapa del repo
 
 ```
 semillaEcommerce/
-├─ index.html                        # Home (catálogo)
-├─ producto.html                     # Detalle de producto
-├─ checkout.html                     # Carrito antes de Stripe
-├─ gracias.html                      # Post-pago OK
-├─ sorry.html                        # Pago cancelado
+├─ index.html                  # Home (catálogo)
+├─ producto.html               # Detalle de producto
+├─ checkout.html               # Carrito antes de Stripe
+├─ gracias.html                # Post-pago OK
+├─ sorry.html                  # Pago cancelado
 ├─ admin/
-│  ├─ index.html                     # Guardar el ADMIN_TOKEN
-│  ├─ tickets.html                   # Ver pedidos
-│  └─ stock.html                     # Ajustar stock
-├─ css/styles.css                    # Base neutra
+│  ├─ index.html               # Guardar ADMIN_TOKEN
+│  ├─ tickets.html             # Ver pedidos
+│  └─ stock.html               # Ajustar stock
+├─ css/styles.css              # Base neutra
 ├─ js/
-│  ├─ config.js                      # API_BASE = "/api" (mismo origen)
-│  ├─ app.js                         # Carrito en localStorage
-│  ├─ home.js, producto.js, checkout.js
+│  ├─ config.js, app.js, home.js, producto.js, checkout.js
 ├─ functions/
-│  └─ api/[[route]].js               # TODA la lógica del backend (Hono)
+│  └─ api/[[route]].js         # Backend (Hono + D1 + Stripe)
 ├─ data/
-│  ├─ schema.sql                     # Tablas de D1
-│  └─ seed.sql                       # Datos de ejemplo
-├─ wrangler.toml                     # Config Cloudflare (enlaza D1, flags)
-├─ package.json                      # Dependencias + scripts npm
-└─ .dev.vars.example                 # Plantilla de secretos locales
+│  ├─ productos.json           # ← CATÁLOGO (edítame)
+│  ├─ envios.json              # ← ZONAS Y TARIFAS (edítame)
+│  └─ schema.sql               # Tablas de D1 (stock + pedidos)
+├─ img/                        # Imágenes de producto
+├─ wrangler.toml               # Config Cloudflare
+├─ package.json                # Deps + scripts npm
+└─ .dev.vars.example           # Plantilla de secretos locales
 ```
 
 ---
 
-## 7. Endpoints de la API
+## 9. Endpoints de la API
 
-Todos viven en `/api/*`. Como el front está en el mismo dominio, no hay CORS.
+Todos bajo `/api/*`. Como frontend y backend viven en el mismo dominio, no hay CORS.
 
 | Método | Ruta | Qué hace |
 |---|---|---|
-| GET | `/api/health` | Dice si el backend está vivo y con qué runtime. Útil para verificar deploys. |
-| GET | `/api/productos` | Lista productos activos con stock por talla. |
+| GET | `/api/health` | Estado + nº de productos cargados. |
+| GET | `/api/productos` | Catálogo activo (leído del JSON) con stock actual (de D1). |
 | GET | `/api/productos/:id` | Detalle de un producto. |
-| GET | `/api/envios` | Zonas y tarifas. |
-| POST | `/api/crear-sesion` | Recibe `{ carrito, envio }`, valida stock y crea una sesión de Stripe Checkout. |
+| GET | `/api/envios` | Zonas y tarifas (leído del JSON). |
+| POST | `/api/crear-sesion` | Recibe `{ carrito, envio }`. Revalida precio/nombre contra JSON y stock contra D1. Crea sesión Stripe. |
 | POST | `/api/stripe-webhook` | Lo llama Stripe. Verifica firma → baja stock → inserta pedido. |
 | GET | `/api/admin/historial?limit=100` | (Bearer) Lista pedidos. |
 | POST | `/api/admin/stock-bulk` | (Bearer) Actualiza stock en masa. |
 
-Rutas `/admin/*` requieren header `Authorization: Bearer <ADMIN_TOKEN>`.
-
 ---
 
-## 8. Problemas comunes
+## 10. Problemas comunes
 
-**"Error: D1_ERROR: no such table: productos"**
-No aplicaste el schema. Ejecuta `npm run db:init:local` (o `:init` si es producción).
+**"D1_ERROR: no such table: stock"**
+No aplicaste el schema. `npm run db:init:local` (local) o `npm run db:init` (prod).
 
 **"Webhook signature failed"**
-El `STRIPE_WEBHOOK_SECRET` no coincide. Si es en local, relánzalo desde `stripe listen` y copia de nuevo. Si es producción, en el dashboard de Stripe → Webhooks → tu endpoint → "Reveal signing secret" y actualízalo en Cloudflare.
+`STRIPE_WEBHOOK_SECRET` no coincide. Si local, relanza `stripe listen` y copia de nuevo. Si prod, dashboard Stripe → webhooks → **Reveal signing secret** y actualiza la var en Cloudflare.
 
 **"No se pudo crear la sesión"**
-Revisa `STRIPE_SECRET_KEY`. En modo test empieza por `sk_test_`, en live por `sk_live_`. Si mezclas test y live (sk_test_ con un webhook de live) falla silencioso.
+Revisa `STRIPE_SECRET_KEY`. Test empieza por `sk_test_`, live por `sk_live_`. No los mezcles.
+
+**Añadí un producto al JSON pero no aparece en la tienda.**
+¿Hiciste `git push`? Mira en Cloudflare Pages → Deployments si se desplegó. A veces tarda ~30s en propagar.
+
+**Añadí un producto pero no tiene stock disponible.**
+El stock se inicializa en la primera petición tras el deploy. Refresca la home una vez y debería aparecer. Si no, revisa que `stockInicial` esté bien formado (número o objeto `{talla: cantidad}`).
+
+**Edité `stockInicial` de un producto existente pero el stock no cambia.**
+Correcto, es el comportamiento esperado: `stockInicial` solo se usa la primera vez. Para editar stock vivo, usa `/admin/stock.html`.
 
 **"unauthorized" en el admin**
-El navegador no guardó el token, o está mal. Abre `/admin/`, borra y vuelve a guardar. O en DevTools Console: `localStorage.getItem("semilla.admin")`.
+`localStorage` del navegador no tiene el token o está mal. Ve a `/admin/`, guarda de nuevo.
 
-**Cambios en `.dev.vars` no se aplican**
-Hay que reiniciar `npm run dev`. No hay hot-reload para secretos.
+**Cambios en `.dev.vars` no se aplican.**
+Reinicia `npm run dev`. No hay hot-reload de secretos.
 
-**Después de un deploy las variables parecen ignoradas**
-Cloudflare Pages solo coge las env vars en el momento del build. Tras añadir/editar una var en el dashboard hay que **relanzar el deploy** (Deployments → ⋯ → Retry deployment).
-
-**"npm run dev" dice que no encuentra wrangler**
-¿Hiciste `npm install`? Si sí, borra `node_modules/` y `package-lock.json` y vuelve a instalar.
+**Vars nuevas en Cloudflare parecen ignoradas.**
+Pages sólo coge env vars al build. Tras añadirlas, **Deployments → Retry deployment**.
 
 ---
 
-## 9. Rescatar la versión Node/Render anterior
-
-La versión antigua (Express + JSON en GitHub + Render) está congelada en esta rama/tag:
+## 11. Rescatar la versión Node/Render anterior
 
 ```bash
 git checkout legacy/node-render
-# o por tag:
+```
+o por tag:
+```bash
 git checkout v0.1-node-render
 ```
 
-Úsala solo si un cliente no puede/no quiere Cloudflare. El README de esa rama explica cómo desplegarla.
+Es el mismo código pero con Express + JSON en GitHub + Render. Útil si un cliente no puede usar Cloudflare.
 
 ---
 
 ## Licencia
 
-MIT recomendada. Al ser una semilla reutilizable, mantenla permisiva.
+MIT recomendada (plantilla reutilizable).

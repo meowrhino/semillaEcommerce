@@ -1,15 +1,13 @@
 {
   "name": "semilla-ecommerce",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "wrangler pages dev . --compatibility-flags=nodejs_compat",
     "deploy": "wrangler pages deploy .",
     "db:init": "wrangler d1 execute shop --file=./data/schema.sql",
-    "db:init:local": "wrangler d1 execute shop --local --file=./data/schema.sql",
-    "db:seed": "wrangler d1 execute shop --file=./data/seed.sql",
-    "db:seed:local": "wrangler d1 execute shop --local --file=./data/seed.sql"
+    "db:init:local": "wrangler d1 execute shop --local --file=./data/schema.sql"
   },
   "dependencies": {
     "hono": "^4.6.14",

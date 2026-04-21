@@ -1,146 +1,199 @@
 /**
- * [[route]].js — Backend de la tienda en Cloudflare Pages Functions (Hono).
+ * [[route]].js — backend de la tienda en Cloudflare Pages Functions (Hono).
  *
- * Esto es un catch-all que atiende cualquier request a /api/*.
- * Equivalente al anterior Express de Node, pero corre en Workers/V8 (no Node).
+ * Filosofía JAMstack:
+ *   - El CATÁLOGO (productos, precios, imágenes, descripciones) vive en data/productos.json.
+ *     Source of truth editable con un commit. Se importa como módulo y se bundlea en el deploy.
+ *   - Los ENVÍOS viven en data/envios.json, mismo patrón.
+ *   - D1 sólo guarda lo MUTABLE: stock vivo y pedidos. No duplica el catálogo.
  *
- * Bindings esperados (ver wrangler.toml y .dev.vars):
- *   - env.DB                     → D1 Database
- *   - env.STRIPE_SECRET_KEY      → secret
- *   - env.STRIPE_WEBHOOK_SECRET  → secret
- *   - env.ADMIN_TOKEN            → secret
- *   - env.FRONTEND_URL           → var (para success/cancel URLs de Stripe)
+ * Esto significa que en producción el precio/nombre de un producto es SIEMPRE
+ * el de productos.json en el commit desplegado; el cliente no puede manipularlo.
+ *
+ * Bindings (ver wrangler.toml y .dev.vars):
+ *   env.DB                     → D1 Database
+ *   env.STRIPE_SECRET_KEY      → secret
+ *   env.STRIPE_WEBHOOK_SECRET  → secret
+ *   env.ADMIN_TOKEN            → secret
+ *   env.FRONTEND_URL           → var
  */
 
 import { Hono } from "hono";
 import { handle } from "hono/cloudflare-pages";
 import Stripe from "stripe";
 
+import productos from "../../data/productos.json";
+import envios from "../../data/envios.json";
+
 const app = new Hono().basePath("/api");
 
-// ─────────────────────────────────────────────
-// Healthcheck
-// ─────────────────────────────────────────────
+// ─── helpers ─────────────────────────────────────────────
+const toCents = (eur) => Math.round(Number(eur) * 100);
+
+/** stockInicial admite:
+ *   - número (producto sin variantes):  10  → { _: 10 }
+ *   - objeto {talla: cantidad}:          { S: 3, M: 5 }
+ *   - undefined/null:                    se asume 0, producto aparece pero sin stock */
+function normalizeStockInicial(si) {
+  if (typeof si === "number" && Number.isFinite(si)) return { _: Math.max(0, si) };
+  if (si && typeof si === "object") {
+    const out = {};
+    for (const [k, v] of Object.entries(si)) out[k] = Math.max(0, Number(v) || 0);
+    return out;
+  }
+  return {};
+}
+
+function findProducto(id) {
+  return productos.find((p) => String(p.id) === String(id));
+}
+
+/** Inicializa en D1 las filas de stock que falten, usando stockInicial del JSON.
+ *  Idempotente (INSERT OR IGNORE). Se memoiza por isolate para no lanzar
+ *  el batch en cada request; tras un redeploy, el isolate se recrea y vuelve a comprobar. */
+let stockInitPromise = null;
+function ensureStock(env) {
+  if (stockInitPromise) return stockInitPromise;
+  stockInitPromise = (async () => {
+    const stmts = [];
+    for (const p of productos) {
+      const inicial = normalizeStockInicial(p.stockInicial);
+      for (const [talla, cantidad] of Object.entries(inicial)) {
+        stmts.push(
+          env.DB.prepare(
+            `INSERT OR IGNORE INTO stock (producto_id, talla, cantidad) VALUES (?, ?, ?)`
+          ).bind(String(p.id), String(talla), cantidad)
+        );
+      }
+    }
+    if (stmts.length) await env.DB.batch(stmts);
+  })();
+  try {
+    return stockInitPromise;
+  } catch {
+    stockInitPromise = null;
+    throw new Error("ensureStock failed");
+  }
+}
+
+async function fetchStock(env, productoId = null) {
+  const stmt = productoId
+    ? env.DB.prepare(`SELECT producto_id, talla, cantidad FROM stock WHERE producto_id = ?`).bind(productoId)
+    : env.DB.prepare(`SELECT producto_id, talla, cantidad FROM stock`);
+  const { results } = await stmt.all();
+  const byProducto = {};
+  for (const row of results) {
+    (byProducto[row.producto_id] ||= {})[row.talla] = row.cantidad;
+  }
+  return byProducto;
+}
+
+function hydrateProducto(p, stockMap) {
+  return {
+    id: p.id,
+    nombre: p.nombre,
+    descripcion: p.descripcion ?? "",
+    precio: p.precio,
+    img: p.img ?? "",
+    stockByTalla: stockMap[p.id] || {},
+  };
+}
+
+// ─── catálogo ────────────────────────────────────────────
 app.get("/health", (c) =>
-  c.json({ ok: true, runtime: "workers", db: "d1" })
+  c.json({ ok: true, runtime: "workers", db: "d1", productos: productos.length })
 );
 
-// ─────────────────────────────────────────────
-// Catálogo
-// ─────────────────────────────────────────────
 app.get("/productos", async (c) => {
-  const { results } = await c.env.DB.prepare(
-    `SELECT p.id, p.nombre, p.descripcion, p.precio, p.img,
-            (SELECT json_group_object(talla, cantidad)
-               FROM stock_variantes s WHERE s.producto_id = p.id) AS stockByTalla
-       FROM productos p
-      WHERE p.activo = 1
-      ORDER BY p.created_at DESC`
-  ).all();
-
-  const productos = results.map((r) => ({
-    ...r,
-    stockByTalla: r.stockByTalla ? JSON.parse(r.stockByTalla) : {},
-  }));
-  return c.json(productos);
+  await ensureStock(c.env);
+  const stock = await fetchStock(c.env);
+  const activos = productos.filter((p) => p.activo !== false);
+  return c.json(activos.map((p) => hydrateProducto(p, stock)));
 });
 
 app.get("/productos/:id", async (c) => {
-  const id = c.req.param("id");
-  const producto = await c.env.DB.prepare(
-    `SELECT id, nombre, descripcion, precio, img FROM productos WHERE id = ? AND activo = 1`
-  ).bind(id).first();
-
-  if (!producto) return c.json({ error: "no encontrado" }, 404);
-
-  const { results: stock } = await c.env.DB.prepare(
-    `SELECT talla, cantidad FROM stock_variantes WHERE producto_id = ?`
-  ).bind(id).all();
-
-  producto.stockByTalla = Object.fromEntries(stock.map((s) => [s.talla, s.cantidad]));
-  return c.json(producto);
+  await ensureStock(c.env);
+  const p = findProducto(c.req.param("id"));
+  if (!p || p.activo === false) return c.json({ error: "no encontrado" }, 404);
+  const stock = await fetchStock(c.env, p.id);
+  return c.json(hydrateProducto(p, stock));
 });
 
-app.get("/envios", async (c) => {
-  const { results } = await c.env.DB.prepare(
-    `SELECT zona, precio FROM envios ORDER BY precio ASC`
-  ).all();
-  return c.json(results);
-});
+app.get("/envios", (c) => c.json(envios));
 
-// ─────────────────────────────────────────────
-// Stripe Checkout
-// ─────────────────────────────────────────────
-const isNonEmptyString = (v) => typeof v === "string" && v.trim().length > 0;
-const toCents = (eur) => Math.round(Number(eur) * 100);
-
-function validateCarrito(carrito) {
-  const errors = [];
-  if (!Array.isArray(carrito) || carrito.length === 0) {
-    return { ok: false, errors: ["carrito debe ser un array con al menos 1 ítem"] };
-  }
-  carrito.forEach((it, idx) => {
-    if (!isNonEmptyString(it.nombre)) errors.push(`item[${idx}].nombre requerido`);
-    const precioNum = Number(it.precio);
-    if (!Number.isFinite(precioNum) || precioNum < 0)
-      errors.push(`item[${idx}].precio debe ser número ≥ 0`);
-    const qty = Number(it.cantidad);
-    if (!Number.isInteger(qty) || qty <= 0)
-      errors.push(`item[${idx}].cantidad debe ser entero ≥ 1`);
-  });
-  return { ok: errors.length === 0, errors };
-}
-
+// ─── Stripe checkout ─────────────────────────────────────
 app.post("/crear-sesion", async (c) => {
-  const { carrito = [], envio = null } = await c.req.json();
+  const body = await c.req.json().catch(() => ({}));
+  const carrito = Array.isArray(body.carrito) ? body.carrito : [];
+  const envioReq = body.envio || null;
 
-  const { ok, errors } = validateCarrito(carrito);
-  if (!ok) return c.json({ error: "carrito inválido", errors }, 400);
+  if (!carrito.length) return c.json({ error: "carrito vacío" }, 400);
 
-  // Pre-chequeo de stock
-  for (const item of carrito) {
+  await ensureStock(c.env);
+
+  // Resolvemos cada ítem contra el JSON (precio/nombre no se aceptan del cliente)
+  // y contra D1 (stock).
+  const resolved = [];
+  for (let i = 0; i < carrito.length; i++) {
+    const it = carrito[i];
+    const p = findProducto(it.id);
+    if (!p) return c.json({ error: `producto ${it.id} no existe` }, 400);
+    if (p.activo === false) return c.json({ error: `producto ${it.id} no activo` }, 400);
+
+    const talla = String(it.talla || "_");
+    const cantidad = Number(it.cantidad);
+    if (!Number.isInteger(cantidad) || cantidad <= 0) {
+      return c.json({ error: `cantidad inválida en ítem ${i}` }, 400);
+    }
+
     const row = await c.env.DB.prepare(
-      `SELECT p.nombre, COALESCE(s.cantidad, 0) AS disponible
-         FROM productos p
-         LEFT JOIN stock_variantes s
-           ON s.producto_id = p.id AND s.talla = ?
-        WHERE p.id = ? AND p.activo = 1`
-    ).bind(item.talla || "_", item.id).first();
-
-    if (!row) return c.json({ error: `producto ${item.id} no existe` }, 400);
-
-    if (Number(row.disponible) < Number(item.cantidad)) {
+      `SELECT cantidad FROM stock WHERE producto_id = ? AND talla = ?`
+    )
+      .bind(p.id, talla)
+      .first();
+    const disponible = row ? Number(row.cantidad) : 0;
+    if (disponible < cantidad) {
       return c.json(
         {
-          error: `sin stock para ${row.nombre}${item.talla ? " · " + item.talla : ""}`,
-          disponible: Number(row.disponible),
+          error: `sin stock para ${p.nombre}${talla !== "_" ? " · " + talla : ""}`,
+          disponible,
         },
         409
       );
     }
+
+    resolved.push({ p, talla, cantidad });
+  }
+
+  // Validar envío: precio del JSON, no del cliente.
+  let envioResolved = null;
+  if (envioReq && envioReq.zona) {
+    const match = envios.find((e) => e.zona === envioReq.zona);
+    if (!match) return c.json({ error: "zona de envío desconocida" }, 400);
+    envioResolved = { zona: match.zona, precio: Number(match.precio) || 0 };
   }
 
   const stripe = new Stripe(c.env.STRIPE_SECRET_KEY);
 
-  const line_items = carrito.map((it) => ({
-    quantity: Number(it.cantidad),
+  const line_items = resolved.map(({ p, talla, cantidad }) => ({
+    quantity: cantidad,
     price_data: {
       currency: "eur",
       product_data: {
-        name: it.talla ? `${it.nombre} · ${it.talla}` : it.nombre,
-        metadata: { id: String(it.id || ""), talla: String(it.talla || "") },
+        name: talla !== "_" ? `${p.nombre} · ${talla}` : p.nombre,
+        metadata: { id: String(p.id), talla },
       },
-      unit_amount: toCents(it.precio),
+      unit_amount: toCents(p.precio),
     },
   }));
 
-  if (envio && Number(envio.precio) > 0) {
+  if (envioResolved && envioResolved.precio > 0) {
     line_items.push({
       quantity: 1,
       price_data: {
         currency: "eur",
-        product_data: { name: `Envío · ${envio.zona || "standard"}` },
-        unit_amount: toCents(envio.precio),
+        product_data: { name: `Envío · ${envioResolved.zona}` },
+        unit_amount: toCents(envioResolved.precio),
       },
     });
   }
@@ -156,12 +209,12 @@ app.post("/crear-sesion", async (c) => {
       cancel_url: `${frontend}/sorry.html`,
       metadata: {
         carrito: JSON.stringify(
-          carrito.map((it) => ({
-            id: it.id,
-            nombre: it.nombre,
-            precio: it.precio,
-            talla: it.talla || "",
-            cantidad: it.cantidad,
+          resolved.map(({ p, talla, cantidad }) => ({
+            id: p.id,
+            nombre: p.nombre,
+            precio: p.precio,
+            talla,
+            cantidad,
           }))
         ),
       },
@@ -185,8 +238,11 @@ app.post("/stripe-webhook", async (c) => {
 
   let event;
   try {
-    // En Workers usamos constructEventAsync (la versión sync usa crypto de Node).
-    event = await stripe.webhooks.constructEventAsync(body, sig, c.env.STRIPE_WEBHOOK_SECRET);
+    event = await stripe.webhooks.constructEventAsync(
+      body,
+      sig,
+      c.env.STRIPE_WEBHOOK_SECRET
+    );
   } catch (err) {
     console.error("Webhook signature failed:", err.message);
     return c.text(`Webhook Error: ${err.message}`, 400);
@@ -196,21 +252,15 @@ app.post("/stripe-webhook", async (c) => {
     const session = event.data.object;
     try {
       const carrito = JSON.parse(session.metadata?.carrito || "[]");
-
       const stmts = [];
-
-      // Bajar stock
       for (const it of carrito) {
         stmts.push(
           c.env.DB.prepare(
-            `UPDATE stock_variantes
-                SET cantidad = MAX(0, cantidad - ?)
+            `UPDATE stock SET cantidad = MAX(0, cantidad - ?)
               WHERE producto_id = ? AND talla = ?`
           ).bind(Number(it.cantidad), String(it.id), String(it.talla || "_"))
         );
       }
-
-      // Registrar pedido
       const pedidoId = `ord_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       stmts.push(
         c.env.DB.prepare(
@@ -225,7 +275,6 @@ app.post("/stripe-webhook", async (c) => {
           JSON.stringify(carrito)
         )
       );
-
       await c.env.DB.batch(stmts);
       console.log(`[webhook] pedido ${pedidoId} registrado`);
     } catch (err) {
@@ -236,9 +285,7 @@ app.post("/stripe-webhook", async (c) => {
   return c.json({ received: true });
 });
 
-// ─────────────────────────────────────────────
-// Admin (Bearer token)
-// ─────────────────────────────────────────────
+// ─── admin ───────────────────────────────────────────────
 const admin = new Hono();
 
 admin.use("*", async (c, next) => {
@@ -252,46 +299,47 @@ admin.use("*", async (c, next) => {
 
 admin.get("/historial", async (c) => {
   const limitRaw = Number(c.req.query("limit"));
-  const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 500) : 100;
+  const limit =
+    Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 500) : 100;
 
   const { results } = await c.env.DB.prepare(
-    `SELECT id, stripe_session_id, email, amount_total, currency, items, created_at AS createdAt
+    `SELECT id, stripe_session_id, email, amount_total, currency, items,
+            created_at AS createdAt
        FROM pedidos
       ORDER BY created_at DESC
       LIMIT ?`
-  ).bind(limit).all();
+  )
+    .bind(limit)
+    .all();
 
-  const pedidos = results.map((p) => ({ ...p, items: JSON.parse(p.items || "[]") }));
+  const pedidos = results.map((p) => ({
+    ...p,
+    items: JSON.parse(p.items || "[]"),
+  }));
   return c.json(pedidos);
 });
 
 admin.post("/stock-bulk", async (c) => {
-  const { productos = [] } = await c.req.json();
-  if (!Array.isArray(productos)) {
+  const { productos: updates = [] } = await c.req.json().catch(() => ({}));
+  if (!Array.isArray(updates))
     return c.json({ error: "productos debe ser array" }, 400);
-  }
 
   const stmts = [];
-  for (const p of productos) {
-    if (!p || typeof p !== "object" || !p.id || !p.stockByTalla) continue;
-    for (const [talla, cantidad] of Object.entries(p.stockByTalla)) {
+  for (const u of updates) {
+    if (!u?.id || !u?.stockByTalla) continue;
+    for (const [talla, cantidad] of Object.entries(u.stockByTalla)) {
       stmts.push(
         c.env.DB.prepare(
-          `INSERT INTO stock_variantes (producto_id, talla, cantidad)
-           VALUES (?, ?, ?)
+          `INSERT INTO stock (producto_id, talla, cantidad) VALUES (?, ?, ?)
            ON CONFLICT (producto_id, talla) DO UPDATE SET cantidad = excluded.cantidad`
-        ).bind(String(p.id), String(talla), Math.max(0, Number(cantidad) || 0))
+        ).bind(String(u.id), String(talla), Math.max(0, Number(cantidad) || 0))
       );
     }
   }
-
   if (stmts.length) await c.env.DB.batch(stmts);
-  return c.json({ updated: productos.length });
+  return c.json({ updated: updates.length });
 });
 
 app.route("/admin", admin);
 
-// ─────────────────────────────────────────────
-// Pages Functions adapter
-// ─────────────────────────────────────────────
 export const onRequest = handle(app);
