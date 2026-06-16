@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>Stock — Admin</title>
     <link rel="stylesheet" href="../css/styles.css" />
-    <script src="../js/config.js"></script>
   </head>
   <body>
     <main class="admin">
@@ -16,12 +15,13 @@
     </main>
 
     <script>
-      const token = localStorage.getItem("semilla.admin") || "";
+      const token = localStorage.getItem("shop.admin") || "";
       let productos = [];
+      const nombre = (p) => (p.nombre && typeof p.nombre === "object" ? (p.nombre.es || Object.values(p.nombre)[0]) : p.nombre) || p.id;
 
       async function load() {
         if (!token) return alert("Guarda el token en /admin primero");
-        const res = await fetch(`${window.APP_CONFIG.API_BASE}/productos`);
+        const res = await fetch(`/api/productos`);
         productos = await res.json();
         render();
       }
@@ -31,7 +31,7 @@
           .map(
             (p, i) => `
             <fieldset>
-              <legend>${p.nombre} (${p.id})</legend>
+              <legend>${nombre(p)} (${p.id})</legend>
               ${Object.entries(p.stockByTalla || { _: 0 })
                 .map(
                   ([t, n]) => `
@@ -60,7 +60,7 @@
           payload[pi].stockByTalla[t] = Number(inp.value) || 0;
         });
 
-        const res = await fetch(`${window.APP_CONFIG.API_BASE}/admin/stock-bulk`, {
+        const res = await fetch(`/api/admin/stock-bulk`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",

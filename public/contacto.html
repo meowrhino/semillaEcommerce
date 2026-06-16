@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Contacto — Semilla</title>
+    <link rel="stylesheet" href="css/styles.css" />
+    <script type="module" src="js/pages/contacto.js"></script>
+  </head>
+  <body>
+    <main class="pagina-form">
+      <h1 data-i18n="contact.title">Escríbenos</h1>
+      <form class="form-bloque" data-contacto novalidate>
+        <textarea name="texto" required data-i18n-ph="contact.placeholder"></textarea>
+        <input type="email" name="email" data-i18n-ph="contact.email" autocomplete="email" />
+        <div><button type="submit" data-i18n="contact.send">Enviar</button></div>
+        <div class="form-feedback" data-feedback></div>
+      </form>
+    </main>
+  </body>
+</html>

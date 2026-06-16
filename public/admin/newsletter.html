@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Newsletter — Admin</title>
+    <link rel="stylesheet" href="../css/styles.css" />
+  </head>
+  <body>
+    <main class="admin">
+      <h1>Newsletter</h1>
+      <p><a href="index.html">← volver</a></p>
+      <table id="tabla">
+        <thead><tr><th>Email</th><th>Fecha</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </main>
+    <script>
+      (async () => {
+        const token = localStorage.getItem("shop.admin") || "";
+        if (!token) return alert("Guarda el token en /admin primero");
+        const res = await fetch(`/api/admin/newsletter`, { headers: { Authorization: `Bearer ${token}` } });
+        if (!res.ok) return alert("Error: " + res.status);
+        const rows = await res.json();
+        document.querySelector("#tabla tbody").innerHTML = rows
+          .map((r) => `<tr><td>${r.email}</td><td>${new Date(r.createdAt + "Z").toLocaleString()}</td></tr>`)
+          .join("");
+      })();
+    </script>
+  </body>
+</html>

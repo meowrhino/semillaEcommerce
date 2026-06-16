@@ -1,20 +1,23 @@
 [
   {
     "id": "demo-01",
-    "nombre": "Producto demo sin tallas",
-    "descripcion": "Ejemplo simple: un producto con una única variante. Usa stockInicial como número cuando no haya tallas.",
+    "nombre": { "es": "Producto demo (i18n)", "en": "Demo product (i18n)" },
+    "descripcion": {
+      "es": "Ejemplo con nombre/descripción traducidos: usa objetos {es,en,...}. Una sola variante (stockInicial como número).",
+      "en": "Example with translated name/description: use {es,en,...} objects. Single variant (stockInicial as a number)."
+    },
     "precio": 19.90,
     "peso": 300,
-    "img": "",
+    "imgs": [],
     "stockInicial": 10
   },
   {
     "id": "demo-02",
     "nombre": "Producto demo con tallas",
-    "descripcion": "Ejemplo con varias tallas. stockInicial es un objeto {talla: cantidad}.",
+    "descripcion": "Ejemplo con tallas (stockInicial es {talla: cantidad}) y nombre como texto plano. Pon varias rutas en \"imgs\" para ver la galería con miniaturas.",
     "precio": 34.50,
     "peso": 600,
-    "img": "",
+    "imgs": [],
     "stockInicial": { "S": 3, "M": 5, "L": 2 }
   }
 ]

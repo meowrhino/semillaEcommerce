@@ -5,29 +5,13 @@
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>Semilla — Tienda</title>
     <link rel="stylesheet" href="css/styles.css" />
-    <script src="js/config.js"></script>
-    <script defer src="js/app.js"></script>
-    <script defer src="js/home.js"></script>
+    <script type="module" src="js/pages/home.js"></script>
   </head>
   <body>
-    <header class="site-header">
-      <h1>Semilla</h1>
-      <nav>
-        <a href="index.html">Tienda</a>
-        <a href="checkout.html">
-          Carrito <span data-cart-count class="cart-badge"></span>
-        </a>
-      </nav>
-    </header>
-
     <main>
       <section class="grid" data-productos>
-        <p>Cargando…</p>
+        <p class="estado" data-i18n="loading">Cargando…</p>
       </section>
     </main>
-
-    <footer class="site-footer">
-      <small>&copy; Semilla</small>
-    </footer>
   </body>
 </html>

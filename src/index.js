@@ -308,6 +308,29 @@ app.post("/stripe-webhook", async (c) => {
   return c.json({ received: true });
 });
 
+// ─── newsletter + contacto (features opcionales) ─────────
+const reEmail = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+
+app.post("/newsletter", async (c) => {
+  const { email } = await c.req.json().catch(() => ({}));
+  if (!email || !reEmail.test(String(email))) return c.json({ error: "email inválido" }, 400);
+  await c.env.DB.prepare(`INSERT OR IGNORE INTO newsletter (email) VALUES (?)`)
+    .bind(String(email).trim().toLowerCase())
+    .run();
+  return c.json({ ok: true });
+});
+
+app.post("/contacto", async (c) => {
+  const { texto, email, nombre } = await c.req.json().catch(() => ({}));
+  const msg = String(texto || "").trim();
+  if (!msg) return c.json({ error: "mensaje vacío" }, 400);
+  const id = `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  await c.env.DB.prepare(`INSERT INTO mensajes (id, nombre, email, texto) VALUES (?, ?, ?, ?)`)
+    .bind(id, nombre ? String(nombre).slice(0, 200) : null, email ? String(email).slice(0, 200) : null, msg.slice(0, 5000))
+    .run();
+  return c.json({ ok: true });
+});
+
 // ─── admin ───────────────────────────────────────────────
 const admin = new Hono();
 
@@ -361,6 +384,20 @@ admin.post("/stock-bulk", async (c) => {
   }
   if (stmts.length) await c.env.DB.batch(stmts);
   return c.json({ updated: updates.length });
+});
+
+admin.get("/newsletter", async (c) => {
+  const { results } = await c.env.DB.prepare(
+    `SELECT email, created_at AS createdAt FROM newsletter ORDER BY created_at DESC LIMIT 1000`
+  ).all();
+  return c.json(results);
+});
+
+admin.get("/mensajes", async (c) => {
+  const { results } = await c.env.DB.prepare(
+    `SELECT id, nombre, email, texto, created_at AS createdAt FROM mensajes ORDER BY created_at DESC LIMIT 500`
+  ).all();
+  return c.json(results);
 });
 
 app.route("/admin", admin);

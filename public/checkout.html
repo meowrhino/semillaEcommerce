@@ -3,29 +3,15 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Checkout — Semilla</title>
+    <title>Carrito — Semilla</title>
     <link rel="stylesheet" href="css/styles.css" />
-    <script src="js/config.js"></script>
-    <script defer src="js/app.js"></script>
-    <script defer src="js/checkout.js"></script>
+    <script type="module" src="js/pages/checkout.js"></script>
   </head>
   <body>
-    <header class="site-header">
-      <h1><a href="index.html">Semilla</a></h1>
-    </header>
-
     <main class="checkout">
-      <h2>Tu carrito</h2>
+      <h1 data-i18n="cart.title">Carrito</h1>
       <div data-carrito></div>
-
-      <label>
-        Envío:
-        <select data-envio></select>
-      </label>
-
-      <p class="total">Total: <strong data-total>—</strong></p>
-
-      <button data-pagar>Pagar con Stripe</button>
+      <div class="checkout-resumen" data-resumen></div>
     </main>
   </body>
 </html>

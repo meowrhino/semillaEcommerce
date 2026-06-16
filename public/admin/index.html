@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>Admin — Semilla</title>
     <link rel="stylesheet" href="../css/styles.css" />
-    <script src="../js/config.js"></script>
   </head>
   <body>
     <main class="admin">
@@ -17,17 +16,19 @@
         <button id="save">Guardar</button>
       </section>
 
-      <nav>
-        <a href="tickets.html">Historial de pedidos</a>
-        <a href="stock.html">Gestión de stock</a>
+      <nav style="display:flex;gap:1rem;flex-wrap:wrap;margin-top:1rem">
+        <a href="tickets.html">Pedidos</a>
+        <a href="stock.html">Stock</a>
+        <a href="newsletter.html">Newsletter</a>
+        <a href="mensajes.html">Mensajes</a>
       </nav>
     </main>
 
     <script>
       const input = document.getElementById("token");
-      input.value = localStorage.getItem("semilla.admin") || "";
+      input.value = localStorage.getItem("shop.admin") || "";
       document.getElementById("save").addEventListener("click", () => {
-        localStorage.setItem("semilla.admin", input.value.trim());
+        localStorage.setItem("shop.admin", input.value.trim());
         alert("Token guardado");
       });
     </script>

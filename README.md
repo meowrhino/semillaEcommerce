@@ -218,9 +218,9 @@ Ver sección siguiente.
 
 ### 4.15 — Pintar la marca
 
-- [`css/styles.css`](css/styles.css) está neutro a propósito. Pinta colores, fuentes, espacios.
-- [`js/config.js`](js/config.js): ajusta `TIENDA_NOMBRE`.
-- Textos de [`index.html`](index.html) y hermanos.
+- [`public/css/styles.css`](public/css/styles.css) está neutro a propósito. Pinta colores, fuentes, espacios.
+- [`public/js/core/config.js`](public/js/core/config.js): ajusta `TIENDA_NOMBRE` y `LANGS` (idiomas).
+- Textos de UI traducibles en `public/js/core/i18n.js`.
 
 ---
 
@@ -228,8 +228,8 @@ Ver sección siguiente.
 
 ### Añadir un producto
 
-1. Pon la imagen en `/img/` (p.ej. `/img/taza-azul.jpg`).
-2. Abre [`data/productos.json`](data/productos.json) y añade un objeto:
+1. Pon las imágenes en `public/img/` (p.ej. `public/img/taza-azul/1.jpg`).
+2. Abre [`public/data/productos.json`](public/data/productos.json) y añade un objeto:
 
 ```json
 {
@@ -238,13 +238,15 @@ Ver sección siguiente.
   "descripcion": "Cerámica esmaltada. 350 ml.",
   "precio": 14.90,
   "peso": 350,
-  "img": "/img/taza-azul.jpg",
+  "imgs": ["img/taza-azul/1.jpg", "img/taza-azul/2.jpg"],
   "stockInicial": 20
 }
 ```
 
-`peso` (en **gramos**) es opcional y solo se usa para el envío por peso (ver más abajo). Si no lo
-pones, cuenta como 0.
+- `imgs` es un **array**: con varias imágenes la ficha muestra visor `< >` + miniaturas. (También
+  vale `"img": "ruta"` para una sola.)
+- `peso` (en **gramos**) es opcional, solo para el envío por peso. Si no lo pones, cuenta como 0.
+- `nombre` y `descripcion` admiten **texto plano** o, si usas multi-idioma, un objeto `{es:"…", en:"…"}`.
 
 3. Si tiene tallas, `stockInicial` es un objeto:
 ```json
@@ -359,24 +361,44 @@ Funciona porque:
 ```
 semillaEcommerce/
 ├─ public/                     # ← LA WEB (Cloudflare la sirve como static assets)
-│  ├─ index.html               # Home (catálogo)
-│  ├─ producto.html            # Detalle de producto
-│  ├─ checkout.html            # Carrito antes de Stripe
-│  ├─ gracias.html · sorry.html
+│  ├─ index.html · producto.html · checkout.html · gracias.html · sorry.html
+│  ├─ newsletter.html · contacto.html        # features opcionales
 │  ├─ css/styles.css           # Base neutra
-│  ├─ js/                      # config.js, app.js, home.js, producto.js, checkout.js
-│  ├─ admin/                   # index.html (token), tickets.html, stock.html
+│  ├─ js/
+│  │  ├─ core/                 # config · i18n · data · cart · ui · layout  (módulos compartidos)
+│  │  └─ pages/                # un módulo ES por página (home, producto, checkout, …)
+│  ├─ admin/                   # index (token) · tickets · stock · newsletter · mensajes
 │  ├─ img/                     # Imágenes de producto
 │  └─ data/
 │     ├─ productos.json        # ← CATÁLOGO (edítame)
 │     ├─ envios.json           # ← ZONAS Y TARIFAS (edítame)
-│     └─ schema.sql            # Tablas de D1 (stock + pedidos)
+│     └─ schema.sql            # Tablas de D1 (stock · pedidos · newsletter · mensajes)
 ├─ src/index.js                # ← EL WORKER (Hono + D1 + Stripe). Solo /api/*
 ├─ serve.mjs                   # Preview estático local (sirve public/)
 ├─ wrangler.toml               # Config: main, [assets] directory=public, binding D1
 ├─ package.json                # Deps + scripts npm
 └─ .dev.vars.example           # Plantilla de secretos locales
 ```
+
+La web usa **ES modules**: cada HTML carga un único `<script type="module" src="js/pages/X.js">`,
+que importa lo que necesita de `js/core/`. Por eso el preview necesita un **servidor** (`node serve.mjs`,
+`npx serve .` o `npm run dev`) — ya no vale abrir el HTML con `file://`.
+
+### Features opcionales (módulos)
+
+- **Multi-idioma (i18n).** En [`public/js/core/config.js`](public/js/core/config.js) pon los idiomas
+  en `LANGS` (p.ej. `["es","en"]`); el primero es el de por defecto y con uno solo el selector se
+  oculta. Traduce los textos de UI en `public/js/core/i18n.js` (`STRINGS`) y, en los JSON, usa objetos
+  `{es:"…", en:"…"}` en los campos que quieras traducir (`nombre`, `descripcion`). Lo que dejes como
+  texto plano sale igual en todos los idiomas.
+- **Newsletter y contacto.** Páginas `newsletter.html` / `contacto.html`, endpoints
+  `POST /api/newsletter` y `/api/contacto`, y vistas en `/admin/`. Para quitarlas: borra esas páginas
+  y sus módulos en `js/pages/`, sus enlaces en `js/core/layout.js` (`NAV`), los endpoints en
+  `src/index.js` y, si quieres, las tablas `newsletter`/`mensajes`.
+- **Galería multi-imagen.** Pon varias rutas en `"imgs": [...]` de un producto → visor `< >` +
+  miniaturas. Con una sola imagen no hay miniaturas.
+- **Tallas, envío por peso, toast "añadido", cantidad editable y transiciones de página** ya vienen
+  integrados.
 
 ---
 
@@ -393,8 +415,12 @@ Todos bajo `/api/*`. Como frontend y backend viven en el mismo dominio, no hay C
 | GET | `/api/stock` | `{ [id]: { [talla]: cantidad } }`. Stock vivo. Se usa para enriquecer el catálogo estático que el front lee de `data/productos.json`. |
 | POST | `/api/crear-sesion` | Recibe `{ carrito, envio }`. Revalida precio/nombre contra JSON y stock contra D1. Crea sesión Stripe. |
 | POST | `/api/stripe-webhook` | Lo llama Stripe. Verifica firma → baja stock → inserta pedido. |
+| POST | `/api/newsletter` | (opcional) Guarda un email en la tabla `newsletter`. |
+| POST | `/api/contacto` | (opcional) Guarda un mensaje en la tabla `mensajes`. |
 | GET | `/api/admin/historial?limit=100` | (Bearer) Lista pedidos. |
 | POST | `/api/admin/stock-bulk` | (Bearer) Actualiza stock en masa. |
+| GET | `/api/admin/newsletter` | (Bearer) Lista altas de newsletter. |
+| GET | `/api/admin/mensajes` | (Bearer) Lista mensajes de contacto. |
 
 ---
 

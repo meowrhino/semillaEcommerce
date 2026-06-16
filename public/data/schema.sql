@@ -29,3 +29,18 @@ CREATE TABLE IF NOT EXISTS pedidos (
 );
 
 CREATE INDEX IF NOT EXISTS idx_pedidos_created_at ON pedidos(created_at DESC);
+
+-- newsletter + mensajes (features opcionales: borra estas tablas si no las usas)
+CREATE TABLE IF NOT EXISTS newsletter (
+  email       TEXT PRIMARY KEY,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS mensajes (
+  id          TEXT PRIMARY KEY,
+  nombre      TEXT,
+  email       TEXT,
+  texto       TEXT NOT NULL,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_mensajes_created_at ON mensajes(created_at DESC);
