@@ -18,21 +18,23 @@
 
   if (envioSelect) {
     envioSelect.innerHTML = envios
-      .map(
-        (e) =>
-          `<option value="${e.zona}" data-precio="${e.precio}">${e.zona} — ${SemillaCart.formatPrice(
-            e.precio
-          )}</option>`
-      )
+      .map((e) => {
+        const etiqueta = Array.isArray(e.tramos)
+          ? "(según peso)"
+          : SemillaCart.formatPrice(e.precio);
+        return `<option value="${e.zona}">${e.zona} — ${etiqueta}</option>`;
+      })
       .join("");
     envioSelect.addEventListener("change", render);
   }
 
+  // Resuelve la zona elegida y calcula su precio (plano o por peso del carrito).
   function getEnvio() {
     if (!envioSelect) return null;
     const opt = envioSelect.selectedOptions[0];
     if (!opt) return null;
-    return { zona: opt.value, precio: Number(opt.dataset.precio || 0) };
+    const zona = envios.find((e) => e.zona === opt.value);
+    return { zona: opt.value, precio: SemillaCart.precioEnvio(zona, SemillaCart.cartWeight()) };
   }
 
   function render() {

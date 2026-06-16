@@ -52,9 +52,8 @@ Piensa en Cloudflare como "Render + GitHub Pages + SQLite + DNS, todo junto bajo
 
 | Pieza | Qué es | Para qué la usamos |
 |---|---|---|
-| **Cloudflare Pages** | Hosting de sitios estáticos (como GitHub Pages). | Sirve el HTML/CSS/JS y los archivos de `/data/`. |
-| **Pages Functions** | Pequeñas funciones de backend que corren junto a Pages, sin configurar servidor. | Aquí vive la API (`/api/productos`, `/api/crear-sesion`, etc). |
-| **Hono** | Framework para escribir APIs en Workers, muy parecido a Express. | Organiza las rutas del backend. |
+| **Cloudflare Workers** (con *static assets*) | Plataforma serverless. Un único Worker sirve la web estática (`public/`) **y** la API. | Sirve el HTML/CSS/JS de `public/` y ejecuta el backend en `/api/*`. |
+| **Hono** | Framework para escribir APIs en Workers, muy parecido a Express. | Organiza las rutas del backend (`src/index.js`). |
 | **D1** | Base de datos SQLite "serverless" de Cloudflare. Gratis hasta 5 GB. | Guarda stock y pedidos (NO el catálogo). |
 | **Stripe Checkout** | Página de pago alojada por Stripe. | Cobrar. |
 | **wrangler** | CLI oficial de Cloudflare. | Crear la DB, levantar dev local, desplegar. |
@@ -176,42 +175,34 @@ Te imprime un `whsec_...`. Ponlo como `STRIPE_WEBHOOK_SECRET` en `.dev.vars` y r
 
 Prueba un pago con tarjeta **4242 4242 4242 4242**, cualquier fecha futura, cualquier CVC. Verás el pedido en `/admin/tickets.html`.
 
-### 4.9 — Conectar el repo a Cloudflare Pages
+### 4.9 — Desplegar el Worker
 
-1. https://dash.cloudflare.com → **Workers & Pages** → **Create application** → pestaña **Pages** → **Connect to Git**.
-2. Autoriza GitHub, selecciona el repo.
-3. Configuración:
-   - **Production branch**: `master`
-   - **Framework preset**: *None*
-   - **Build command**: *(vacío)*
-   - **Build output directory**: `/`
-4. **Save and Deploy**. Tarda ~30s. URL tipo `https://tienda-elcliente.pages.dev`.
+La D1 ya está enlazada por `wrangler.toml` (el binding `DB` y el `database_id` del paso 4.4). Despliega:
 
-Cada `git push origin master` redespliega automáticamente.
+```bash
+npm run deploy      # = npx wrangler deploy
+```
 
-### 4.10 — Enlazar la D1 al sitio desplegado
+Sube `src/index.js` + los assets de `public/`. Te devuelve la URL `https://semilla-ecommerce.<tu-subdominio>.workers.dev`.
 
-En tu proyecto de Pages:
-- **Settings** → **Functions** → **D1 database bindings** → **Add binding**.
-  - Variable name: `DB`
-  - D1 database: `shop`
+**Opción (recomendada): auto-deploy desde GitHub.** Dashboard → el Worker → **Settings → Builds → Connect** al repo (rama `master`). A partir de ahí cada `git push` despliega solo, sin tocar la CLI.
 
-### 4.11 — Secretos de producción
+### 4.10 — Secretos de producción
 
-**Settings** → **Environment variables** → sección **Production** → **Add variable** (marca **Encrypted**):
+Se añaden por CLI (NO van al repo):
 
-| Variable | Valor |
-|---|---|
-| `STRIPE_SECRET_KEY` | `sk_test_...` o `sk_live_...` |
-| `STRIPE_WEBHOOK_SECRET` | `whsec_...` de Stripe (paso 4.13) |
-| `ADMIN_TOKEN` | un string largo; lo meterás en `/admin/` para entrar |
-| `FRONTEND_URL` | p.ej. `https://tutienda.com` o `https://tienda-elcliente.pages.dev` |
+```bash
+npx wrangler secret put STRIPE_SECRET_KEY      # sk_test_... o sk_live_...
+npx wrangler secret put STRIPE_WEBHOOK_SECRET   # whsec_... (paso 4.13)
+npx wrangler secret put ADMIN_TOKEN             # string largo, para entrar en /admin/
+```
 
-Tras añadirlos, **Deployments → Retry deployment** para que los coja.
+`FRONTEND_URL` es opcional: si lo dejas vacío, el Worker usa el origen de cada petición (funciona
+igual con el dominio `.workers.dev` que con el dominio propio).
 
-### 4.12 — Dominio del cliente
+### 4.11 — Dominio del cliente
 
-**Custom domains** → escribe `tutienda.com` → siguiente. Si el DNS ya está en Cloudflare (lo normal), HTTPS automático en 1-2 min.
+Dashboard → el Worker → **Settings → Domains & Routes → Add → Custom domain** → escribe `tutienda.com`. Si el DNS ya está en Cloudflare (lo normal), HTTPS automático en 1-2 min.
 
 ### 4.13 — Webhook de Stripe en producción
 
@@ -246,10 +237,14 @@ Ver sección siguiente.
   "nombre": "Taza cerámica azul",
   "descripcion": "Cerámica esmaltada. 350 ml.",
   "precio": 14.90,
+  "peso": 350,
   "img": "/img/taza-azul.jpg",
   "stockInicial": 20
 }
 ```
+
+`peso` (en **gramos**) es opcional y solo se usa para el envío por peso (ver más abajo). Si no lo
+pones, cuenta como 0.
 
 3. Si tiene tallas, `stockInicial` es un objeto:
 ```json
@@ -283,7 +278,25 @@ Quítalo del JSON. El stock y los pedidos históricos permanecen en D1 (puedes l
 
 ### Añadir una zona de envío
 
-Edita [`data/envios.json`](data/envios.json), añade `{ "zona": "...", "precio": ... }`, push.
+Edita [`data/envios.json`](data/envios.json) y haz push. Cada zona admite **dos formatos**:
+
+```json
+[
+  { "zona": "peninsula", "precio": 4.90 },
+  { "zona": "internacional", "tramos": [
+    { "hasta": 500,    "precio": 7.00 },
+    { "hasta": 2000,   "precio": 12.00 },
+    { "hasta": 100000, "precio": 22.00 }
+  ] }
+]
+```
+
+- **Tarifa plana:** `{ "zona": "x", "precio": 4.90 }`.
+- **Por peso:** `{ "zona": "x", "tramos": [ { "hasta": <gramos>, "precio": <€> }, ... ] }`. Se suma el
+  `peso` (gramos) × cantidad de todo el carrito y se aplica el primer tramo cuyo `hasta` lo cubra.
+
+El backend **recalcula** el precio del envío (nunca se fía del cliente), igual que con el precio de
+los productos.
 
 ---
 
@@ -309,6 +322,8 @@ npm run db:init:local
 Si solo quieres trabajar CSS / HTML / maquetación y no te interesa Stripe ni admin, abre la tienda con cualquier servidor estático:
 
 ```bash
+node serve.mjs          # servidor estático incluido → http://localhost:8123
+# o
 npx serve .
 # o
 python3 -m http.server 8000
@@ -317,7 +332,7 @@ python3 -m http.server 8000
 Funciona porque:
 - La home y las fichas leen el catálogo directamente de [`data/productos.json`](data/productos.json).
 - Como `stock` vivo no está disponible, se usa el `stockInicial` declarado en el JSON (suficiente para previsualizar).
-- El botón de pagar fallará porque llama a `/api/crear-sesion` (eso sí requiere Functions).
+- El botón de pagar fallará porque llama a `/api/crear-sesion` (eso sí requiere el Worker: `npm run dev`).
 
 Útil para iterar diseño sin tener que arrancar `wrangler`.
 
@@ -334,8 +349,8 @@ Funciona porque:
 - Lee los productos de `productos.json`, los números muestran el stock actual de D1. Editas y guardas.
 
 ### Ver logs en producción
-- Cloudflare dashboard → Pages → proyecto → **Functions** → **Real-time logs**.
-- CLI: `npx wrangler pages deployment tail`.
+- Cloudflare dashboard → el Worker → **Logs** (Real-time logs).
+- CLI: `npx wrangler tail`.
 
 ---
 
@@ -343,26 +358,22 @@ Funciona porque:
 
 ```
 semillaEcommerce/
-├─ index.html                  # Home (catálogo)
-├─ producto.html               # Detalle de producto
-├─ checkout.html               # Carrito antes de Stripe
-├─ gracias.html                # Post-pago OK
-├─ sorry.html                  # Pago cancelado
-├─ admin/
-│  ├─ index.html               # Guardar ADMIN_TOKEN
-│  ├─ tickets.html             # Ver pedidos
-│  └─ stock.html               # Ajustar stock
-├─ css/styles.css              # Base neutra
-├─ js/
-│  ├─ config.js, app.js, home.js, producto.js, checkout.js
-├─ functions/
-│  └─ api/[[route]].js         # Backend (Hono + D1 + Stripe)
-├─ data/
-│  ├─ productos.json           # ← CATÁLOGO (edítame)
-│  ├─ envios.json              # ← ZONAS Y TARIFAS (edítame)
-│  └─ schema.sql               # Tablas de D1 (stock + pedidos)
-├─ img/                        # Imágenes de producto
-├─ wrangler.toml               # Config Cloudflare
+├─ public/                     # ← LA WEB (Cloudflare la sirve como static assets)
+│  ├─ index.html               # Home (catálogo)
+│  ├─ producto.html            # Detalle de producto
+│  ├─ checkout.html            # Carrito antes de Stripe
+│  ├─ gracias.html · sorry.html
+│  ├─ css/styles.css           # Base neutra
+│  ├─ js/                      # config.js, app.js, home.js, producto.js, checkout.js
+│  ├─ admin/                   # index.html (token), tickets.html, stock.html
+│  ├─ img/                     # Imágenes de producto
+│  └─ data/
+│     ├─ productos.json        # ← CATÁLOGO (edítame)
+│     ├─ envios.json           # ← ZONAS Y TARIFAS (edítame)
+│     └─ schema.sql            # Tablas de D1 (stock + pedidos)
+├─ src/index.js                # ← EL WORKER (Hono + D1 + Stripe). Solo /api/*
+├─ serve.mjs                   # Preview estático local (sirve public/)
+├─ wrangler.toml               # Config: main, [assets] directory=public, binding D1
 ├─ package.json                # Deps + scripts npm
 └─ .dev.vars.example           # Plantilla de secretos locales
 ```

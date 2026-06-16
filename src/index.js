@@ -1,10 +1,13 @@
 /**
- * [[route]].js — backend de la tienda en Cloudflare Pages Functions (Hono).
+ * src/index.js — backend de la tienda en un Cloudflare Worker (Hono).
+ *
+ * Worker con "static assets": Cloudflare sirve public/ (la web) automáticamente y este Worker
+ * solo atiende /api/*. Las rutas que coincidan con un archivo de public/ se sirven directas.
  *
  * Filosofía JAMstack:
- *   - El CATÁLOGO (productos, precios, imágenes, descripciones) vive en data/productos.json.
+ *   - El CATÁLOGO (productos, precios, imágenes, descripciones) vive en public/data/productos.json.
  *     Source of truth editable con un commit. Se importa como módulo y se bundlea en el deploy.
- *   - Los ENVÍOS viven en data/envios.json, mismo patrón.
+ *   - Los ENVÍOS viven en public/data/envios.json, mismo patrón.
  *   - D1 sólo guarda lo MUTABLE: stock vivo y pedidos. No duplica el catálogo.
  *
  * Esto significa que en producción el precio/nombre de un producto es SIEMPRE
@@ -19,11 +22,10 @@
  */
 
 import { Hono } from "hono";
-import { handle } from "hono/cloudflare-pages";
 import Stripe from "stripe";
 
-import productos from "../../data/productos.json";
-import envios from "../../data/envios.json";
+import productos from "../public/data/productos.json";
+import envios from "../public/data/envios.json";
 
 const app = new Hono().basePath("/api");
 
@@ -46,6 +48,17 @@ function normalizeStockInicial(si) {
 
 function findProducto(id) {
   return productos.find((p) => String(p.id) === String(id));
+}
+
+/** Precio de envío de una zona. Soporta tarifa plana ({precio}) o por peso ({tramos}, gramos). */
+function precioEnvio(zona, gramos = 0) {
+  if (!zona) return 0;
+  if (Array.isArray(zona.tramos)) {
+    const tramos = [...zona.tramos].sort((a, b) => a.hasta - b.hasta);
+    for (const tr of tramos) if (gramos <= tr.hasta) return Number(tr.precio) || 0;
+    return Number(tramos[tramos.length - 1]?.precio) || 0;
+  }
+  return Number(zona.precio) || 0;
 }
 
 /** Inicializa en D1 las filas de stock que falten, usando stockInicial del JSON.
@@ -142,6 +155,7 @@ app.post("/crear-sesion", async (c) => {
   // Resolvemos cada ítem contra el JSON (precio/nombre no se aceptan del cliente)
   // y contra D1 (stock).
   const resolved = [];
+  let pesoTotal = 0; // gramos, para el envío por peso
   for (let i = 0; i < carrito.length; i++) {
     const it = carrito[i];
     const p = findProducto(it.id);
@@ -170,15 +184,16 @@ app.post("/crear-sesion", async (c) => {
       );
     }
 
+    pesoTotal += (Number(p.peso) || 0) * cantidad;
     resolved.push({ p, talla, cantidad });
   }
 
-  // Validar envío: precio del JSON, no del cliente.
+  // Validar envío: precio recalculado en el servidor (plano o por peso), no del cliente.
   let envioResolved = null;
   if (envioReq && envioReq.zona) {
     const match = envios.find((e) => e.zona === envioReq.zona);
     if (!match) return c.json({ error: "zona de envío desconocida" }, 400);
-    envioResolved = { zona: match.zona, precio: Number(match.precio) || 0 };
+    envioResolved = { zona: match.zona, precio: precioEnvio(match, pesoTotal) };
   }
 
   const stripe = new Stripe(c.env.STRIPE_SECRET_KEY);
@@ -350,4 +365,5 @@ admin.post("/stock-bulk", async (c) => {
 
 app.route("/admin", admin);
 
-export const onRequest = handle(app);
+// El Worker: Hono atiende /api/*; los assets de public/ los sirve Cloudflare automáticamente.
+export default app;

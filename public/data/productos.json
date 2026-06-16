@@ -4,6 +4,7 @@
     "nombre": "Producto demo sin tallas",
     "descripcion": "Ejemplo simple: un producto con una única variante. Usa stockInicial como número cuando no haya tallas.",
     "precio": 19.90,
+    "peso": 300,
     "img": "",
     "stockInicial": 10
   },
@@ -12,6 +13,7 @@
     "nombre": "Producto demo con tallas",
     "descripcion": "Ejemplo con varias tallas. stockInicial es un objeto {talla: cantidad}.",
     "precio": 34.50,
+    "peso": 600,
     "img": "",
     "stockInicial": { "S": 3, "M": 5, "L": 2 }
   }

@@ -52,6 +52,7 @@
       id: p.id,
       nombre: p.nombre,
       precio: p.precio,
+      peso: p.peso,
       img: p.img,
       talla,
       cantidad: 1,

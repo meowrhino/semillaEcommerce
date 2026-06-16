@@ -1,25 +1,30 @@
 name = "semilla-ecommerce"
+main = "src/index.js"
 compatibility_date = "2025-04-01"
 compatibility_flags = ["nodejs_compat"]
-pages_build_output_dir = "."
 
-# D1 — SQLite serverless
-# 1. Crea la DB:        wrangler d1 create shop
-# 2. Copia el database_id que te devuelva aquí abajo.
-# 3. Aplica schema:     npm run db:init
-# 4. (Opcional) seed:   npm run db:seed
+# Static assets: Cloudflare sirve la carpeta public/ (la web) automáticamente.
+# El Worker (main) solo atiende /api/*; las rutas que coincidan con un archivo de public/
+# se sirven directas sin ejecutar el Worker.
+[assets]
+directory = "./public"
+
+# D1 — SQLite serverless. Solo guarda lo mutable (stock + pedidos). El catálogo NO está aquí:
+# vive en public/data/*.json.
+# 1. Crea la DB:    npx wrangler d1 create shop
+# 2. Pega el database_id que te devuelva aquí abajo.
+# 3. Aplica schema: npm run db:init
 [[d1_databases]]
 binding = "DB"
 database_name = "shop"
 database_id = "PEGA_AQUI_EL_ID_DEVUELTO_POR_D1_CREATE"
 
-# Variables NO secretas (se pueden commitear).
+# Variables NO secretas (se pueden commitear). Vacío = el Worker usa el origen de la petición.
 [vars]
-FRONTEND_URL = "https://semilla-ecommerce.pages.dev"
+FRONTEND_URL = ""
 
-# Los secretos se añaden con CLI, NO van aquí:
-#   wrangler pages secret put STRIPE_SECRET_KEY
-#   wrangler pages secret put STRIPE_WEBHOOK_SECRET
-#   wrangler pages secret put ADMIN_TOKEN
-#
+# Los secretos se añaden por CLI (NO van aquí):
+#   npx wrangler secret put STRIPE_SECRET_KEY
+#   npx wrangler secret put STRIPE_WEBHOOK_SECRET
+#   npx wrangler secret put ADMIN_TOKEN
 # Para desarrollo local, usa .dev.vars (ver .dev.vars.example).

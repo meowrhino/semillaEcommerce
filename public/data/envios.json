@@ -1,0 +1,10 @@
+[
+  { "zona": "local", "precio": 0 },
+  { "zona": "peninsula", "tramos": [
+    { "hasta": 500, "precio": 4.90 },
+    { "hasta": 2000, "precio": 6.90 },
+    { "hasta": 100000, "precio": 9.90 }
+  ] },
+  { "zona": "europa", "precio": 12.00 },
+  { "zona": "internacional", "precio": 22.00 }
+]

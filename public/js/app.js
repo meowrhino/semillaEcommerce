@@ -38,6 +38,14 @@ function cartTotal() {
   );
 }
 
+/** Peso total del carrito en gramos (para envío por peso). 0 si los productos no declaran `peso`. */
+function cartWeight() {
+  return getCart().reduce(
+    (g, it) => g + Number(it.peso || 0) * Number(it.cantidad || 0),
+    0
+  );
+}
+
 function addToCart(item) {
   const cart = getCart();
   const existing = cart.find(
@@ -92,6 +100,20 @@ function normalizeStockInicial(si) {
   return {};
 }
 
+/** Precio de envío de una zona. Soporta dos formatos en envios.json (retro-compatible):
+ *   - tarifa plana:  { "zona": "x", "precio": 4.9 }
+ *   - por peso:      { "zona": "x", "tramos": [ { "hasta": 500, "precio": 4.9 }, ... ] }  (gramos)
+ *  Para tarifa plana, `gramos` se ignora. */
+function precioEnvio(zona, gramos = 0) {
+  if (!zona) return 0;
+  if (Array.isArray(zona.tramos)) {
+    const tramos = [...zona.tramos].sort((a, b) => a.hasta - b.hasta);
+    for (const tr of tramos) if (gramos <= tr.hasta) return Number(tr.precio) || 0;
+    return Number(tramos[tramos.length - 1]?.precio) || 0;
+  }
+  return Number(zona.precio) || 0;
+}
+
 /** Carga el catálogo estático (data/productos.json) e intenta enriquecerlo
  *  con stock vivo de /api/stock. Si la API no está disponible, cae a stockInicial. */
 async function fetchProductos() {
@@ -112,6 +134,7 @@ async function fetchProductos() {
     nombre: p.nombre,
     descripcion: p.descripcion ?? "",
     precio: p.precio,
+    peso: Number(p.peso) || 0,
     img: p.img ?? "",
     stockByTalla:
       (stockVivo && stockVivo[p.id]) || normalizeStockInicial(p.stockInicial),
@@ -142,11 +165,13 @@ window.SemillaCart = {
   setCart,
   cartCount,
   cartTotal,
+  cartWeight,
   addToCart,
   updateQty,
   removeItem,
   clearCart,
   renderCartBadge,
+  precioEnvio,
   fetchProductos,
   fetchProducto,
   fetchEnvios,
