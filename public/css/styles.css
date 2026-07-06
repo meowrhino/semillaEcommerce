@@ -91,6 +91,8 @@ select, input, textarea { font: inherit; padding: 0.5rem; border: 1px solid var(
 
 /* ---------- Formularios (newsletter / contacto) ---------- */
 .pagina-form { max-width: 460px; }
+.pagina-legal { max-width: 66ch; }
+.pagina-legal h2 { margin: 2rem 0 0.6rem; }
 .form-bloque input, .form-bloque textarea { width: 100%; margin-bottom: 0.8rem; }
 .form-bloque textarea { min-height: 120px; resize: vertical; }
 .form-bloque button { border: 0; background: var(--accent); color: var(--accent-fg); cursor: pointer; padding: 0.6rem 1.3rem; border-radius: var(--radius); }

@@ -14,6 +14,7 @@ const NAV = [
   { href: "index.html", key: "nav.tienda" },
   { href: "newsletter.html", key: "nav.newsletter" },
   { href: "contacto.html", key: "nav.contacto" },
+  { href: "legal.html", key: "nav.legal" },
 ];
 
 function build() {

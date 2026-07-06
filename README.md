@@ -232,7 +232,14 @@ Stripe dashboard → **Developers** → **Webhooks** → **Add endpoint**:
 
 Ver sección siguiente.
 
-### 4.15 — Pintar la marca
+### 4.15 — Rellenar la página legal (obligatoria)
+
+[`public/legal.html`](public/legal.html) trae la base (aviso legal LSSI, condiciones de venta,
+desistimiento de 14 días, privacidad RGPD, cookies). Sustituye los datos entre `[CORCHETES]`
+por los del cliente **antes de abrir la tienda** — para vender en España es obligatoria.
+Si la tienda añade analytics o cookies de verdad, amplía esa sección y añade banner de consentimiento.
+
+### 4.16 — Pintar la marca
 
 - [`public/css/styles.css`](public/css/styles.css) está neutro a propósito. Pinta colores, fuentes, espacios.
 - [`public/js/core/config.js`](public/js/core/config.js): ajusta `TIENDA_NOMBRE` y `LANGS` (idiomas).
