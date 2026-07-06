@@ -11,28 +11,59 @@
       <h1>Pedidos</h1>
       <p><a href="index.html">← volver</a></p>
       <table id="tabla">
-        <thead><tr><th>Fecha</th><th>Email</th><th>Total</th><th>Items</th></tr></thead>
+        <thead><tr><th>Fecha</th><th>Email</th><th>Total</th><th>Items</th><th>Envío</th><th>Estado</th></tr></thead>
         <tbody></tbody>
       </table>
     </main>
 
     <script>
-      (async () => {
-        const token = localStorage.getItem("shop.admin") || "";
+      const token = localStorage.getItem("shop.admin") || "";
+      const ESTADOS = ["pendiente", "enviado", "entregado", "cancelado"];
+
+      const dirTxt = (envio) => {
+        if (!envio) return "—";
+        const a = envio.direccion || {};
+        const partes = [envio.nombre, a.line1, a.line2, [a.postal_code, a.city].filter(Boolean).join(" "), a.state, a.country]
+          .filter(Boolean);
+        const zona = envio.zona ? `[${envio.zona}] ` : "";
+        return zona + (partes.length ? partes.join(", ") : "sin dirección");
+      };
+
+      async function load() {
         if (!token) return alert("Guarda el token en /admin primero");
         const res = await fetch(`/api/admin/historial?limit=100`, { headers: { Authorization: `Bearer ${token}` } });
         if (!res.ok) return alert("Error: " + res.status);
         const pedidos = await res.json();
-        document.querySelector("#tabla tbody").innerHTML = pedidos
+        const tbody = document.querySelector("#tabla tbody");
+        tbody.innerHTML = pedidos
           .map((p) => `
             <tr>
               <td>${new Date(p.createdAt + "Z").toLocaleString()}</td>
               <td>${p.email || "—"}</td>
               <td>${((p.amount_total || 0) / 100).toFixed(2)} €</td>
-              <td>${(p.items || []).map((i) => `${i.nombre || i.id}${i.talla ? "·" + i.talla : ""} ×${i.cantidad}`).join(", ")}</td>
+              <td>${(p.items || []).map((i) => `${i.nombre || i.id}${i.talla && i.talla !== "_" ? "·" + i.talla : ""} ×${i.cantidad}`).join(", ")}</td>
+              <td>${dirTxt(p.envio)}</td>
+              <td>
+                <select data-pedido="${p.id}">
+                  ${ESTADOS.map((e) => `<option value="${e}" ${e === (p.estado || "pendiente") ? "selected" : ""}>${e}</option>`).join("")}
+                </select>
+              </td>
             </tr>`)
           .join("");
-      })();
+
+        tbody.querySelectorAll("select[data-pedido]").forEach((sel) => {
+          sel.addEventListener("change", async () => {
+            const res = await fetch(`/api/admin/pedido-estado`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+              body: JSON.stringify({ id: sel.dataset.pedido, estado: sel.value }),
+            });
+            if (!res.ok) alert("Error guardando estado: " + res.status);
+          });
+        });
+      }
+
+      load();
     </script>
   </body>
 </html>

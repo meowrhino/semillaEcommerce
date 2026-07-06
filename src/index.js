@@ -50,6 +50,39 @@ function findProducto(id) {
   return productos.find((p) => String(p.id) === String(id));
 }
 
+/** Países que acepta Stripe para dirección de envío (ISO 3166-1, sin los no soportados).
+ *  Fallback para zonas sin lista `paises` propia en envios.json (p. ej. "internacional"). */
+const PAISES_STRIPE = [
+  "AD","AE","AF","AG","AI","AL","AM","AO","AR","AT","AU","AW","AX","AZ","BA","BB","BD","BE","BF",
+  "BG","BH","BI","BJ","BL","BM","BN","BO","BQ","BR","BS","BT","BW","BY","BZ","CA","CD","CF","CG",
+  "CH","CI","CK","CL","CM","CN","CO","CR","CV","CW","CY","CZ","DE","DJ","DK","DM","DO","DZ","EC",
+  "EE","EG","ER","ES","ET","FI","FJ","FK","FO","FR","GA","GB","GD","GE","GF","GG","GH","GI","GL",
+  "GM","GN","GP","GQ","GR","GT","GU","GW","GY","HK","HN","HR","HT","HU","ID","IE","IL","IM","IN",
+  "IQ","IS","IT","JE","JM","JO","JP","KE","KG","KH","KI","KM","KN","KR","KW","KY","KZ","LA","LB",
+  "LC","LI","LK","LR","LS","LT","LU","LV","LY","MA","MC","MD","ME","MF","MG","MK","ML","MM","MN",
+  "MO","MQ","MR","MS","MT","MU","MV","MW","MX","MY","MZ","NA","NC","NE","NG","NI","NL","NO","NP",
+  "NR","NU","NZ","OM","PA","PE","PF","PG","PH","PK","PL","PM","PR","PS","PT","PY","QA","RE","RO",
+  "RS","RU","RW","SA","SB","SC","SE","SG","SH","SI","SJ","SK","SL","SM","SN","SO","SR","SS","ST",
+  "SV","SX","SZ","TC","TD","TG","TH","TJ","TK","TL","TM","TN","TO","TR","TT","TV","TW","TZ","UA",
+  "UG","US","UY","UZ","VA","VC","VE","VG","VN","VU","WF","WS","XK","YE","ZA","ZM","ZW",
+];
+
+/** Países permitidos para una zona: su lista `paises` del JSON, o todos los de Stripe. */
+function paisesDeZona(zona) {
+  return Array.isArray(zona.paises) && zona.paises.length ? zona.paises : PAISES_STRIPE;
+}
+
+/** Etiqueta de una zona para el checkout de Stripe ({nombre} string u objeto i18n, o el id). */
+function nombreDeZona(zona) {
+  if (typeof zona.nombre === "string") return zona.nombre;
+  return zona.nombre?.es || zona.zona;
+}
+
+/** Zona de recogida en mano: marcada con "recogida": true en envios.json (no pide dirección). */
+function esZonaRecogida(zona) {
+  return zona.recogida === true || zona.zona === "recogida";
+}
+
 /** Precio de envío de una zona. Soporta tarifa plana ({precio}) o por peso ({tramos}, gramos). */
 function precioEnvio(zona, gramos = 0) {
   if (!zona) return 0;
@@ -80,13 +113,12 @@ function ensureStock(env) {
       }
     }
     if (stmts.length) await env.DB.batch(stmts);
-  })();
-  try {
-    return stockInitPromise;
-  } catch {
+  })().catch((err) => {
+    // Si D1 falla no dejamos cacheada la promesa rota: el siguiente request reintenta.
     stockInitPromise = null;
-    throw new Error("ensureStock failed");
-  }
+    throw err;
+  });
+  return stockInitPromise;
 }
 
 async function fetchStock(env, productoId = null) {
@@ -188,14 +220,19 @@ app.post("/crear-sesion", async (c) => {
     resolved.push({ p, talla, cantidad });
   }
 
-  // Validar envío: precio recalculado en el servidor (plano o por peso), no del cliente.
+  // Envío: si hay zonas configuradas en envios.json, es obligatorio elegir una.
+  // El precio se recalcula SIEMPRE en el servidor (plano o por peso), no se acepta del cliente.
+  let zonaEnvio = null;
   let envioResolved = null;
-  if (envioReq && envioReq.zona) {
-    const match = envios.find((e) => e.zona === envioReq.zona);
-    if (!match) return c.json({ error: "zona de envío desconocida" }, 400);
-    envioResolved = { zona: match.zona, precio: precioEnvio(match, pesoTotal) };
+  if (envios.length) {
+    if (!envioReq?.zona) return c.json({ error: "falta la zona de envío" }, 400);
+    zonaEnvio = envios.find((e) => e.zona === envioReq.zona);
+    if (!zonaEnvio) return c.json({ error: "zona de envío desconocida" }, 400);
+    envioResolved = { zona: zonaEnvio.zona, precio: precioEnvio(zonaEnvio, pesoTotal) };
   }
+  const conEnvio = envioResolved && !esZonaRecogida(zonaEnvio);
 
+  if (!c.env.STRIPE_SECRET_KEY) return c.json({ error: "pagos no configurados" }, 503);
   const stripe = new Stripe(c.env.STRIPE_SECRET_KEY);
 
   const line_items = resolved.map(({ p, talla, cantidad }) => ({
@@ -210,42 +247,70 @@ app.post("/crear-sesion", async (c) => {
     },
   }));
 
-  if (envioResolved && envioResolved.precio > 0) {
-    line_items.push({
-      quantity: 1,
-      price_data: {
-        currency: "eur",
-        product_data: { name: `Envío · ${envioResolved.zona}` },
-        unit_amount: toCents(envioResolved.precio),
-      },
-    });
-  }
-
   const frontend = c.env.FRONTEND_URL || new URL(c.req.url).origin;
 
   try {
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
-      payment_method_types: ["card"],
+      // Sin payment_method_types: Stripe usa los métodos activados en el dashboard
+      // (tarjeta + wallets de serie; Bizum/PayPal/etc. se activan allí, sin tocar código).
       line_items,
+      // El envío va como shipping_option (no como producto): sale como envío de verdad
+      // en el checkout y el recibo. En recogida no se pide dirección ni se cobra nada.
+      shipping_address_collection: conEnvio
+        ? { allowed_countries: paisesDeZona(zonaEnvio) }
+        : undefined,
+      shipping_options: conEnvio
+        ? [
+            {
+              shipping_rate_data: {
+                type: "fixed_amount",
+                display_name: nombreDeZona(zonaEnvio),
+                fixed_amount: { amount: toCents(envioResolved.precio), currency: "eur" },
+              },
+            },
+          ]
+        : undefined,
+      // Campo "¿tienes un código?" en el checkout; los códigos se crean en el dashboard.
+      allow_promotion_codes: true,
+      // La sesión caduca en 30 min (mínimo de Stripe): acorta la ventana en la que
+      // alguien puede pagar stock que ya voló (el stock se descuenta en el webhook).
+      expires_at: Math.floor(Date.now() / 1000) + 30 * 60,
       success_url: `${frontend}/gracias.html?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${frontend}/sorry.html`,
+      // Metadata mínima (límite Stripe: 500 chars/valor): id, talla (si hay) y cantidad.
+      // El webhook re-enriquece nombre/precio desde productos.json.
       metadata: {
         carrito: JSON.stringify(
-          resolved.map(({ p, talla, cantidad }) => ({
-            id: p.id,
-            nombre: p.nombre,
-            precio: p.precio,
-            talla,
-            cantidad,
-          }))
+          resolved.map(({ p, talla, cantidad }) =>
+            talla !== "_" ? { id: p.id, talla, cantidad } : { id: p.id, cantidad }
+          )
         ),
+        zona: envioResolved?.zona || "",
       },
     });
     return c.json({ url: session.url, id: session.id });
   } catch (err) {
     console.error("Stripe session error:", err?.message || err);
     return c.json({ error: "no se pudo crear la sesión" }, 500);
+  }
+});
+
+/** Estado de una sesión de checkout (para gracias.html: confirmar antes de vaciar carrito). */
+app.get("/session-status", async (c) => {
+  const id = c.req.query("session_id");
+  if (!id) return c.json({ error: "session_id requerido" }, 400);
+  if (!c.env.STRIPE_SECRET_KEY) return c.json({ error: "pagos no configurados" }, 503);
+  const stripe = new Stripe(c.env.STRIPE_SECRET_KEY);
+  try {
+    const s = await stripe.checkout.sessions.retrieve(id);
+    return c.json({
+      status: s.status,
+      payment_status: s.payment_status,
+      email: s.customer_details?.email || null,
+    });
+  } catch {
+    return c.json({ error: "sesión no encontrada" }, 404);
   }
 });
 
@@ -274,7 +339,28 @@ app.post("/stripe-webhook", async (c) => {
   if (event.type === "checkout.session.completed") {
     const session = event.data.object;
     try {
+      // Metadata trae solo [{id, talla?, cantidad}]; nombre y precio se resuelven del JSON.
       const carrito = JSON.parse(session.metadata?.carrito || "[]");
+      const items = carrito.map((it) => {
+        const p = findProducto(it.id);
+        return {
+          id: it.id,
+          nombre: p ? p.nombre : String(it.id),
+          precio: p ? p.precio : null,
+          talla: String(it.talla || "_"),
+          cantidad: Number(it.cantidad),
+        };
+      });
+
+      // Dirección de envío: según versión de API viene en collected_information o en shipping_details.
+      const ship = session.collected_information?.shipping_details || session.shipping_details || null;
+      const envioInfo = {
+        zona: session.metadata?.zona || null,
+        nombre: ship?.name || session.customer_details?.name || null,
+        direccion: ship?.address || null,
+        telefono: session.customer_details?.phone || null,
+      };
+
       const stmts = [];
       for (const it of carrito) {
         stmts.push(
@@ -287,17 +373,21 @@ app.post("/stripe-webhook", async (c) => {
       const pedidoId = `ord_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       stmts.push(
         c.env.DB.prepare(
-          `INSERT INTO pedidos (id, stripe_session_id, email, amount_total, currency, items)
-           VALUES (?, ?, ?, ?, ?, ?)`
+          `INSERT INTO pedidos (id, stripe_session_id, email, amount_total, currency, items, zona, envio, estado)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pendiente')`
         ).bind(
           pedidoId,
           session.id,
           session.customer_details?.email || null,
           session.amount_total,
           session.currency,
-          JSON.stringify(carrito)
+          JSON.stringify(items),
+          envioInfo.zona,
+          JSON.stringify(envioInfo)
         )
       );
+      // El batch es atómico y stripe_session_id es UNIQUE: si Stripe reenvía el evento,
+      // el INSERT falla y el descuento de stock se revierte con él (idempotencia). No "arreglar".
       await c.env.DB.batch(stmts);
       console.log(`[webhook] pedido ${pedidoId} registrado`);
     } catch (err) {
@@ -349,7 +439,7 @@ admin.get("/historial", async (c) => {
     Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 500) : 100;
 
   const { results } = await c.env.DB.prepare(
-    `SELECT id, stripe_session_id, email, amount_total, currency, items,
+    `SELECT id, stripe_session_id, email, amount_total, currency, items, zona, envio, estado,
             created_at AS createdAt
        FROM pedidos
       ORDER BY created_at DESC
@@ -361,8 +451,22 @@ admin.get("/historial", async (c) => {
   const pedidos = results.map((p) => ({
     ...p,
     items: JSON.parse(p.items || "[]"),
+    envio: p.envio ? JSON.parse(p.envio) : null,
   }));
   return c.json(pedidos);
+});
+
+const ESTADOS_PEDIDO = ["pendiente", "enviado", "entregado", "cancelado"];
+
+admin.post("/pedido-estado", async (c) => {
+  const { id, estado } = await c.req.json().catch(() => ({}));
+  if (!id || !ESTADOS_PEDIDO.includes(estado))
+    return c.json({ error: `estado debe ser: ${ESTADOS_PEDIDO.join(", ")}` }, 400);
+  const r = await c.env.DB.prepare(`UPDATE pedidos SET estado = ? WHERE id = ?`)
+    .bind(estado, String(id))
+    .run();
+  if (!r.meta.changes) return c.json({ error: "pedido no encontrado" }, 404);
+  return c.json({ ok: true });
 });
 
 admin.post("/stock-bulk", async (c) => {

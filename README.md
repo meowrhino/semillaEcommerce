@@ -204,6 +204,22 @@ igual con el dominio `.workers.dev` que con el dominio propio).
 
 Dashboard → el Worker → **Settings → Domains & Routes → Add → Custom domain** → escribe `tutienda.com`. Si el DNS ya está en Cloudflare (lo normal), HTTPS automático en 1-2 min.
 
+### 4.12 — Configurar Stripe desde el dashboard (sin tocar código)
+
+El Worker no fija métodos de pago ni cupones: todo eso se gestiona en el dashboard de Stripe
+y aparece solo en el checkout.
+
+- **Métodos de pago** (Settings → Payment methods): tarjeta + Apple/Google Pay vienen de serie.
+  Activa **Bizum** (imprescindible vendiendo en España), PayPal, Klarna… sin redeploy.
+- **Cupones** (Products → Coupons → crea el cupón → Promotion codes): códigos con %, importe fijo,
+  caducidad o límite de usos. El checkout ya muestra el campo "¿tienes un código?"
+  (`allow_promotion_codes` está activado).
+- **Recibos por email** (Settings → Emails): activa "Successful payments" (solo funciona en live).
+- **IVA:** no se calcula ni se desglosa. B2C en España = el precio del JSON es el precio final,
+  IVA incluido (lo estándar y legal). Solo si un cliente superara los 10.000 €/año en ventas a
+  otros países UE (régimen OSS) haría falta activar **Stripe Tax** — es un parámetro más en la
+  sesión, no un rediseño.
+
 ### 4.13 — Webhook de Stripe en producción
 
 Stripe dashboard → **Developers** → **Webhooks** → **Add endpoint**:
@@ -297,8 +313,16 @@ Edita [`data/envios.json`](data/envios.json) y haz push. Cada zona admite **dos 
 - **Por peso:** `{ "zona": "x", "tramos": [ { "hasta": <gramos>, "precio": <€> }, ... ] }`. Se suma el
   `peso` (gramos) × cantidad de todo el carrito y se aplica el primer tramo cuyo `hasta` lo cubra.
 
+Campos opcionales por zona:
+
+- `"nombre"`: etiqueta que ve el comprador (string u objeto i18n `{es, en}`). Sin él, se usa el id.
+- `"paises"`: lista ISO de países que Stripe acepta como dirección de envío para esa zona
+  (p.ej. `["ES"]` para península). Sin él, se permiten todos → útil para "internacional".
+  Así nadie paga envío de península con dirección de Berlín.
+- `"recogida": true`: la zona es recogida en mano → no se pide dirección ni se cobra envío.
+
 El backend **recalcula** el precio del envío (nunca se fía del cliente), igual que con el precio de
-los productos.
+los productos, y lo pasa a Stripe como envío de verdad (`shipping_options`), no como un producto más.
 
 ---
 
@@ -342,9 +366,18 @@ Funciona porque:
 
 ## 7. Gestionar la tienda ya desplegada
 
-### Ver pedidos
-- Navegador: `https://tutienda.com/admin/` → meter `ADMIN_TOKEN` → **Historial**.
+### Ver y gestionar pedidos
+- Navegador: `https://tutienda.com/admin/` → meter `ADMIN_TOKEN` → **Historial**. Cada pedido
+  muestra email, items, **zona + dirección de envío** (la que el comprador puso en Stripe) y un
+  selector de **estado** (`pendiente → enviado → entregado / cancelado`) que se guarda solo.
 - CLI: `npx wrangler d1 execute shop --command="SELECT * FROM pedidos ORDER BY created_at DESC LIMIT 20"`.
+
+### Copia de seguridad de la base (recomendado)
+D1 tiene *Time Travel* (restaura hasta 30 días atrás), pero no protege contra borrar la base
+entera desde el dashboard. Exporta de vez en cuando:
+```bash
+npx wrangler d1 export shop --remote --output=backup-$(date +%F).sql
+```
 
 ### Cambiar stock
 - Navegador: `https://tutienda.com/admin/stock.html`.
@@ -413,11 +446,13 @@ Todos bajo `/api/*`. Como frontend y backend viven en el mismo dominio, no hay C
 | GET | `/api/productos/:id` | Detalle de un producto. |
 | GET | `/api/envios` | Zonas y tarifas (leído del JSON). |
 | GET | `/api/stock` | `{ [id]: { [talla]: cantidad } }`. Stock vivo. Se usa para enriquecer el catálogo estático que el front lee de `data/productos.json`. |
-| POST | `/api/crear-sesion` | Recibe `{ carrito, envio }`. Revalida precio/nombre contra JSON y stock contra D1. Crea sesión Stripe. |
-| POST | `/api/stripe-webhook` | Lo llama Stripe. Verifica firma → baja stock → inserta pedido. |
+| POST | `/api/crear-sesion` | Recibe `{ carrito, envio }`. Revalida precio/nombre contra JSON y stock contra D1. Crea sesión Stripe (caduca a los 30 min; envío como `shipping_options`; cupones activados). |
+| GET | `/api/session-status?session_id=…` | Estado de una sesión (lo usa `gracias.html` para verificar el pago antes de vaciar el carrito). |
+| POST | `/api/stripe-webhook` | Lo llama Stripe. Verifica firma → baja stock → inserta pedido (con zona, dirección y estado). |
 | POST | `/api/newsletter` | (opcional) Guarda un email en la tabla `newsletter`. |
 | POST | `/api/contacto` | (opcional) Guarda un mensaje en la tabla `mensajes`. |
-| GET | `/api/admin/historial?limit=100` | (Bearer) Lista pedidos. |
+| GET | `/api/admin/historial?limit=100` | (Bearer) Lista pedidos (items, zona, dirección, estado). |
+| POST | `/api/admin/pedido-estado` | (Bearer) `{ id, estado }` → pendiente / enviado / entregado / cancelado. |
 | POST | `/api/admin/stock-bulk` | (Bearer) Actualiza stock en masa. |
 | GET | `/api/admin/newsletter` | (Bearer) Lista altas de newsletter. |
 | GET | `/api/admin/mensajes` | (Bearer) Lista mensajes de contacto. |
