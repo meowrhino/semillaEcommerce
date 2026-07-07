@@ -385,6 +385,9 @@ entera desde el dashboard. Exporta de vez en cuando:
 ```bash
 npx wrangler d1 export shop --remote --output=backup-$(date +%F).sql
 ```
+O automático: el repo trae [`.github/workflows/backup-d1.yml`](.github/workflows/backup-d1.yml)
+(export semanal como artefacto). Solo requiere añadir el secret `CLOUDFLARE_API_TOKEN`
+(instrucciones en el propio archivo).
 
 ### Cambiar stock
 - Navegador: `https://tutienda.com/admin/stock.html`.

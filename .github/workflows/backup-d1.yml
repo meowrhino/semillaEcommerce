@@ -1,0 +1,37 @@
+# Backup semanal de la D1 `shop` de esta tienda.
+# Exporta un .sql y lo guarda como artefacto del workflow (90 días).
+#
+# REQUISITO (una vez): crear un API token en Cloudflare
+#   dashboard → My Profile → API Tokens → Create Token → Custom:
+#   permiso Account → D1 → Edit (y nada más)
+# y añadirlo en GitHub → repo → Settings → Secrets → Actions como
+#   CLOUDFLARE_API_TOKEN
+# Sin ese secret, el job falla (verás la ✗ en la pestaña Actions).
+#
+# Descargar un backup: GitHub → Actions → run → Artifacts.
+# Restaurar: npx wrangler d1 execute shop --remote --file=backup.sql
+
+name: backup-d1
+
+on:
+  schedule:
+    - cron: "0 5 * * 1" # lunes 05:00 UTC
+  workflow_dispatch: {} # y a mano, desde la pestaña Actions
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Exportar la base
+        run: npx wrangler@4 d1 export shop --remote --output=shop-backup.sql
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shop-backup-${{ github.run_number }}
+          path: shop-backup.sql
+          retention-days: 90
