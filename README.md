@@ -239,7 +239,27 @@ desistimiento de 14 días, privacidad RGPD, cookies). Sustituye los datos entre 
 por los del cliente **antes de abrir la tienda** — para vender en España es obligatoria.
 Si la tienda añade analytics o cookies de verdad, amplía esa sección y añade banner de consentimiento.
 
-### 4.16 — Pintar la marca
+### 4.16 — Checklist final antes de abrir (resumen de lo que NO hace el código)
+
+Todo lo anterior en una lista, para repasar tienda por tienda:
+
+- [ ] **Secretos** puestos: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `ADMIN_TOKEN` (§4.10).
+- [ ] **Webhook** de Stripe creado apuntando a `/api/stripe-webhook` (§4.13).
+- [ ] **Dashboard de Stripe**: Bizum activado, recibos por email activados, cupones si toca (§4.12).
+- [ ] **legal.html**: todos los `[CORCHETES]` sustituidos por los datos fiscales del cliente (§4.15).
+- [ ] **Catálogo real**: precios definitivos, pesos si hay envío por peso, `envios.json` con tarifas reales.
+- [ ] **Auto-deploy**: Workers Builds conectado al repo (§4.9) y **dominio** añadido (§4.11).
+- [ ] **Backup automático**: secret `CLOUDFLARE_API_TOKEN` añadido en GitHub → Settings →
+      Secrets → Actions (token custom de Cloudflare con permiso Account → D1 → Edit; instrucciones
+      en `.github/workflows/backup-d1.yml`). ¿Por qué hace falta? El workflow corre en los
+      servidores de GitHub, que no tienen tu sesión de `wrangler login` — sin token no puede
+      hablar con Cloudflare. *Alternativa sin token:* backups manuales
+      (`npx wrangler d1 export shop --remote --output=backup.sql` de vez en cuando) + el
+      Time Travel de D1 (30 días), y borras el workflow.
+- [ ] **Compra de prueba** en modo test (tarjeta `4242 4242 4242 4242`) → el pedido aparece en
+      `/admin/tickets.html` con dirección y estado → borrar el producto de prueba → clave live.
+
+### 4.17 — Pintar la marca
 
 - [`public/css/styles.css`](public/css/styles.css) está neutro a propósito. Pinta colores, fuentes, espacios.
 - [`public/js/core/config.js`](public/js/core/config.js): ajusta `TIENDA_NOMBRE` y `LANGS` (idiomas).
