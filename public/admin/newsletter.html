@@ -22,8 +22,9 @@
         const res = await fetch(`/api/admin/newsletter`, { headers: { Authorization: `Bearer ${token}` } });
         if (!res.ok) return alert("Error: " + res.status);
         const rows = await res.json();
+        const esc = (s) => String(s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
         document.querySelector("#tabla tbody").innerHTML = rows
-          .map((r) => `<tr><td>${r.email}</td><td>${new Date(r.createdAt + "Z").toLocaleString()}</td></tr>`)
+          .map((r) => `<tr><td>${esc(r.email)}</td><td>${new Date(r.createdAt + "Z").toLocaleString()}</td></tr>`)
           .join("");
       })();
     </script>

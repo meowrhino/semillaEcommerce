@@ -2,7 +2,7 @@
 
 Plantilla para montar un ecommerce pequeño desde cero, diseñada con filosofía **JAMstack**: el catálogo vive en un archivo de texto que se edita con un editor y se publica con un `git push`. Todo corre en **Cloudflare gratis**: web, backend, base de datos y dominio, bajo la misma cuenta.
 
-Este README está escrito pensando en que **no has tocado Cloudflare Pages ni D1 antes**. Te lleva paso a paso desde clonar el repo hasta tener una tienda viva con pagos reales.
+Este README está escrito pensando en que **no has tocado Cloudflare Workers ni D1 antes**. Te lleva paso a paso desde clonar el repo hasta tener una tienda viva con pagos reales.
 
 ---
 
@@ -40,7 +40,7 @@ Esto significa que:
 
 - El precio/nombre/descripción de un producto **siempre** es lo que dice el JSON del commit desplegado. El cliente final no puede manipular precios desde el navegador (el backend revalida todo).
 - Añadir un producto son **2 acciones**: editar un JSON y poner la imagen en `/img/`.
-- La home y las fichas de producto leen el catálogo directamente del JSON (no llaman a la API para listarlo) → se pueden **previsualizar con cualquier servidor estático** sin levantar las Functions. Perfecto para maquetar.
+- La home y las fichas de producto leen el catálogo directamente del JSON (no llaman a la API para listarlo) → se pueden **previsualizar con cualquier servidor estático** sin levantar el backend. Perfecto para maquetar.
 - Puedes hacer `git blame` sobre el catálogo y ver quién cambió qué y cuándo.
 - Si rompes algo con una edición mala, `git revert` y listo.
 
@@ -362,7 +362,7 @@ npm run dev                                      # levanta todo en http://localh
 stripe listen --forward-to http://localhost:8788/api/stripe-webhook   # si tocas el flujo de pago
 ```
 
-Cambias HTML/CSS/JS o `functions/api/[[route]].js` o `data/*.json` → wrangler reinicia solo (el JSON se re-bundlea al arrancar la función).
+Cambias HTML/CSS/JS o `src/index.js` o `data/*.json` → wrangler reinicia solo (el JSON se re-bundlea al arrancar el Worker).
 
 Resetear la DB local:
 ```bash
@@ -501,7 +501,7 @@ No aplicaste el schema. `npm run db:init:local` (local) o `npm run db:init` (pro
 Revisa `STRIPE_SECRET_KEY`. Test empieza por `sk_test_`, live por `sk_live_`. No los mezcles.
 
 **Añadí un producto al JSON pero no aparece en la tienda.**
-¿Hiciste `git push`? Mira en Cloudflare Pages → Deployments si se desplegó. A veces tarda ~30s en propagar.
+¿Hiciste `git push`? Mira en Cloudflare → el Worker → Deployments si se desplegó. A veces tarda ~30s en propagar.
 
 **Añadí un producto pero no tiene stock disponible.**
 El stock se inicializa en la primera petición tras el deploy. Refresca la home una vez y debería aparecer. Si no, revisa que `stockInicial` esté bien formado (número o objeto `{talla: cantidad}`).
@@ -516,7 +516,7 @@ Correcto, es el comportamiento esperado: `stockInicial` solo se usa la primera v
 Reinicia `npm run dev`. No hay hot-reload de secretos.
 
 **Vars nuevas en Cloudflare parecen ignoradas.**
-Pages sólo coge env vars al build. Tras añadirlas, **Deployments → Retry deployment**.
+Los *secretos* (por CLI o dashboard) se aplican al momento. Si cambiaste `[vars]` en `wrangler.toml`, vuelve a desplegar (`npm run deploy`, o un `git push` si tienes Workers Builds conectado).
 
 ---
 
